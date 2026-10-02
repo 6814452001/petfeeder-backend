@@ -28,18 +28,30 @@ async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') return null;
 
   const userText = event.message.text.trim();
-  console.log('ได้รับข้อความจาก LINE:', userText);
 
-  // ตรวจสอบว่ามีคำว่า "ให้อาหาร" อยู่ในข้อความหรือไม่
+  // 1. สั่งให้อาหารทันที
   if (userText.includes('ให้อาหาร')) {
-    console.log('ส่งคำสั่ง MQTT: FEED');
     mqttClient.publish('petfeeder/PET-FEEDER-001/command', 'FEED');
-
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: '🐱 รับคำสั่งเรียบร้อย กำลังให้อาหารสัตว์เลี้ยงครับ!'
     });
   }
+
+  // 2. ตั้งเวลาให้อาหาร เช่น "ตั้งเวลา 07:00, 12:00, 18:30, 21:00"
+  if (userText.startsWith('ตั้งเวลา')) {
+    const timesStr = userText.replace('ตั้งเวลา', '').trim(); // ดึงเฉพาะชุดเวลา
+    
+    // ส่งชุดเวลาไปที่ MQTT Topic สำหรับตั้งเวลา
+    mqttClient.publish('petfeeder/PET-FEEDER-001/schedule', timesStr);
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `⏰ บันทึกตารางให้อาหารเรียบร้อยแล้ว:\n${timesStr}`
+    });
+  }
+
+  return Promise.resolve(null);
 }
 
 const PORT = process.env.PORT || 10000;
