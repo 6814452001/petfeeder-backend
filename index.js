@@ -2,57 +2,99 @@ const express = require('express');
 const line = require('@line/bot-sdk');
 const mqtt = require('mqtt');
 
-const config = {
-  channelSecret: '3aaa68a43fbab44d55682e94e33ad904',
-  channelAccessToken: 'Q6HL6BPXBNUOk0w/LJi1z5gsY8suwI6xp+eTDXlYoJGEtMn4nZdUl0J2osD9gngKOglND53ixoYcPY0dxqe8R49/eRFNYK7P1Kuvg6BoCbbjQiRf92OY667qMawKVqSe2u3VoCnjNKvS0lql8Fk0cAdB04t89/1O/w1cDnyilFU='
+// ==================== 1. การตั้งค่า LINE Messaging API ====================
+// นำ Channel Access Token และ Channel Secret จาก LINE Developers Console มาใส่ที่นี่
+const lineConfig = {
+  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN || 'YOUR_LINE_CHANNEL_ACCESS_TOKEN',
+  channelSecret: process.env.CHANNEL_SECRET || 'YOUR_LINE_CHANNEL_SECRET'
 };
 
-const app = express();
-const client = new line.Client(config);
-const mqttClient = mqtt.connect('mqtt://broker.hivemq.com:1883');
+const lineClient = new line.Client(lineConfig);
+
+// ==================== 2. การเชื่อมต่อ MQTT Broker ====================
+// ใช้ HiveMQ Broker และ Topic เดียวกับที่ตั้งไว้ใน ESP32
+const MQTT_BROKER = 'mqtt://broker.hivemq.com:1883';
+const MQTT_TOPIC  = 'petfeeder/command';
+
+const mqttClient = mqtt.connect(MQTT_BROKER);
 
 mqttClient.on('connect', () => {
-  console.log('✅ Connected to HiveMQ Broker');
+  console.log('✅ Connected to HiveMQ Broker successfully!');
 });
 
-app.post('/webhook', line.middleware(config), (req, res) => {
+mqttClient.on('error', (err) => {
+  console.error('❌ MQTT Connection Error:', err);
+});
+
+// ==================== 3. การสร้าง Express Server ====================
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Webhook Endpoint สำหรับรับ Event จาก LINE
+app.post('/webhook', line.middleware(lineConfig), (req, res) => {
   Promise.all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
-      console.error('Webhook Error:', err);
+      console.error('Error handling event:', err);
       res.status(500).end();
     });
 });
 
+// ==================== 4. ฟังก์ชันจัดการ Message Event ====================
 async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') return null;
+  // รับเฉพาะข้อความตัวอักษร (Text Message)
+  if (event.type !== 'message' || event.message.type !== 'text') {
+    return Promise.resolve(null);
+  }
 
+  // ตัดเว้นวรรค และแปลงเป็นตัวพิมพ์ใหญ่เพื่อเช็กเงื่อนไข
   const userText = event.message.text.trim();
+  const uppercaseText = userText.toUpperCase();
 
-  // 1. สั่งให้อาหารทันที
-  if (userText.includes('ให้อาหาร')) {
-    mqttClient.publish('petfeeder/PET-FEEDER-001/command', 'FEED');
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '🐱 รับคำสั่งเรียบร้อย กำลังให้อาหารสัตว์เลี้ยงครับ!'
-    });
-  }
+  console.log(`📩 Received message from LINE: "${userText}"`);
 
-  // 2. ตั้งเวลาให้อาหาร เช่น "ตั้งเวลา 07:00, 12:00, 18:30, 21:00"
-  if (userText.startsWith('ตั้งเวลา')) {
-    const timesStr = userText.replace('ตั้งเวลา', '').trim(); // ดึงเฉพาะชุดเวลา
+  // เช็กเงื่อนไขว่าตรงกับคำว่า "ให้อาหาร" หรือ "FEED" หรือไม่
+  if (userText === 'ให้อาหาร' || uppercaseText === 'FEED') {
     
-    // ส่งชุดเวลาไปที่ MQTT Topic สำหรับตั้งเวลา
-    mqttClient.publish('petfeeder/PET-FEEDER-001/schedule', timesStr);
+    // Payload ที่จะส่งหา ESP32
+    const payload = 'ให้อาหาร';
 
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: `⏰ บันทึกตารางให้อาหารเรียบร้อยแล้ว:\n${timesStr}`
+    // ส่งข้อความผ่าน MQTT ไปยัง ESP32
+    mqttClient.publish(MQTT_TOPIC, payload, { qos: 0 }, (err) => {
+      if (err) {
+        console.error('❌ Failed to publish MQTT message:', err);
+      } else {
+        console.log(`🚀 MQTT Published to [${MQTT_TOPIC}]: ${payload}`);
+      }
     });
-  }
 
-  return Promise.resolve(null);
+    // ข้อความตอบกลับไปยัง LINE User
+    const replyText = '🐾 รับทราบครับ! กำลังจ่ายอาหารให้สัตว์เลี้ยงของคุณทันที...';
+    return lineClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyText
+    });
+
+  } else if (userText === 'เช็คสถานะ' || uppercaseText === 'STATUS') {
+    
+    // ตัวอย่างคำสั่งเพิ่มเติมสำหรับเช็กสถานะ
+    return lineClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '🤖 เครื่องให้อาหารสัตว์เลี้ยงออนไลน์พร้อมใช้งานครับ'
+    });
+
+  } else {
+    
+    // กรณีพิมพ์คำอื่นเข้ามา
+    return lineClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '❓ กรุณาพิมพ์คำว่า "ให้อาหาร" เพื่อสั่งจ่ายอาหารครับ'
+    });
+
+  }
 }
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// เริ่มต้นเปิด Server
+app.listen(PORT, () => {
+  console.log(`🚀 Server is running on port ${PORT}`);
+});
