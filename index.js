@@ -4,8 +4,8 @@ const mqtt = require('mqtt');
 
 // 1. ตั้งค่า LINE Client
 const lineConfig = {
-  channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN || 'YOUR_CHANNEL_ACCESS_TOKEN',
-  channelSecret: process.env.CHANNEL_SECRET || 'YOUR_CHANNEL_SECRET'
+  channelAccessToken:'Q6HL6BPXBNUOk0w/LJi1z5gsY8suwI6xp+eTDXlYoJGEtMn4nZdUl0J2osD9gngKOglND53ixoYcPY0dxqe8R49/eRFNYK7P1Kuvg6BoCbbjQiRf92OY667qMawKVqSe2u3VoCnjNKvS0lql8Fk0cAdB04t89/1O/w1cDnyilFU=',
+  channelSecret:'5b860a740ca5d2c267455fd8f198f01c'
 };
 
 const lineClient = new line.Client(lineConfig);
