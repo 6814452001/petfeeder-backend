@@ -36,7 +36,6 @@ function triggerFeeding(source = 'Unknown') {
 }
 
 // ==================== 3. ระบบตั้งเวลาให้อาหาร (Scheduler) ====================
-// ตัวแปรเก็บตารางเวลา 5 ช่วง
 let schedules = [
   { id: 1, time: '', days: [], enabled: false },
   { id: 2, time: '', days: [], enabled: false },
@@ -45,10 +44,8 @@ let schedules = [
   { id: 5, time: '', days: [], enabled: false }
 ];
 
-// ตรวจสอบเวลาทุกๆ 1 วินาที
 setInterval(() => {
   const now = new Date();
-  // แปลงเวลาให้เป็น เวลาประเทศไทย (Asia/Bangkok)
   const options = { timeZone: 'Asia/Bangkok', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' };
   const formatter = new Intl.DateTimeFormat('en-US', options);
   const parts = formatter.formatToParts(now);
@@ -58,12 +55,11 @@ setInterval(() => {
     if (p.type === 'hour') currentHour = p.value;
     if (p.type === 'minute') currentMinute = p.value;
     if (p.type === 'second') currentSecond = p.value;
-    if (p.type === 'weekday') currentDay = p.value.toLowerCase(); // mon, tue, wed, thu, fri, sat, sun
+    if (p.type === 'weekday') currentDay = p.value.toLowerCase();
   });
 
   const currentTimeStr = `${currentHour}:${currentMinute}`;
 
-  // ตรวจสอบเฉพาะวินาทีที่ 00 เพื่อไม่ให้สั่งทำงานซ้ำในนาทีเดียวกัน
   if (currentSecond === '00') {
     schedules.forEach(item => {
       if (item.enabled && item.time === currentTimeStr && item.days.includes(currentDay)) {
@@ -76,19 +72,18 @@ setInterval(() => {
 
 // ==================== 4. ตั้งค่า Express Server ====================
 const app = express();
-app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // API สำหรับดึงและบันทึกตารางเวลา
-app.get('/api/schedules', (req, res) => res.json(schedules));
-app.post('/api/schedules', (req, res) => {
+app.get('/api/schedules', express.json(), (req, res) => res.json(schedules));
+app.post('/api/schedules', express.json(), (req, res) => {
   schedules = req.body;
   console.log('📅 Schedules Updated:', JSON.stringify(schedules));
   res.json({ success: true, schedules });
 });
 
-// Endpoint API สำหรับกดปุ่มสั่งให้อาหารทันทีจากเว็บ
-app.post('/api/feed', (req, res) => {
+// Endpoint API สำหรับกดปุ่มสั่งให้อาหารจากเว็บ
+app.post('/api/feed', express.json(), (req, res) => {
   triggerFeeding('Web App');
   res.json({ success: true, message: 'Feeding triggered!' });
 });
@@ -226,8 +221,14 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ==================== 5. Webhook สำหรับ LINE OA ====================
+// ==================== 5. Webhook สำหรับ LINE OA (ปรับปรุงรองรับ Test Verify) ====================
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
+  // ตรวจสอบว่าเป็น Test Event จากปุ่ม Verify ใน LINE Console หรือไม่
+  if (req.body.events && req.body.events.length === 0) {
+    console.log('✅ LINE Verification Test Event Received!');
+    return res.status(200).json({ status: 'ok' });
+  }
+
   Promise.all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
@@ -237,6 +238,11 @@ app.post('/webhook', line.middleware(lineConfig), (req, res) => {
 });
 
 async function handleEvent(event) {
+  // รองรับกรณีเป็น Test Event ของ LINE ที่มี replyToken เป็น 00000000000000000000000000000000
+  if (event.replyToken === '00000000000000000000000000000000' || event.replyToken === 'ffffffffffffffffffffffffffffffff') {
+    return Promise.resolve(null);
+  }
+
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
@@ -245,13 +251,11 @@ async function handleEvent(event) {
   console.log(`📩 Received message from LINE: "${userText}"`);
 
   if (userText === 'ให้อาหาร' || userText.toUpperCase() === 'FEED') {
-    const replyPromise = lineClient.replyMessage(event.replyToken, {
+    triggerFeeding('LINE OA');
+    return lineClient.replyMessage(event.replyToken, {
       type: 'text',
       text: '🐾 จ่ายอาหารเรียบร้อยแล้วครับ!'
-    }).catch(err => console.error('❌ LINE Reply Error:', err));
-
-    triggerFeeding('LINE OA');
-    return replyPromise;
+    });
   } else {
     return lineClient.replyMessage(event.replyToken, {
       type: 'text',
@@ -264,7 +268,6 @@ async function handleEvent(event) {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   
-  // ยิง Self-Ping ทุก 10 นาที กัน Render หลับ
   setInterval(() => {
     https.get('https://petfeeder-backend-ylcj.onrender.com', (res) => {
       console.log(`⏰ Self-ping status: ${res.statusCode}`);
