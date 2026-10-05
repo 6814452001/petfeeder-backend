@@ -1,7 +1,6 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
 const mqtt = require('mqtt');
-const https = require('https');
 
 // ==================== 1. ตั้งค่า LINE Client ====================
 const lineConfig = {
@@ -24,13 +23,30 @@ mqttClient.on('error', (err) => {
   console.error('❌ MQTT Error:', err);
 });
 
-// ฟังก์ชันสั่งจ่ายอาหาร
+// Array สำหรับเก็บประวัติการให้อาหาร (เก็บสูงสุด 20 รายการล่าสุด)
+let feedHistory = [];
+
+// ฟังก์ชันสั่งจ่ายอาหาร พร้อมบันทึกประวัติ
 function triggerFeeding(source = 'Unknown') {
   mqttClient.publish(MQTT_TOPIC, 'ให้อาหาร', { qos: 0 }, (err) => {
     if (err) {
       console.error(`❌ [${source}] Failed to publish MQTT:`, err);
     } else {
       console.log(`🚀 [${source}] Published to MQTT [${MQTT_TOPIC}]: ให้อาหาร`);
+      
+      // บันทึกเวลาไทยลงประวัติ
+      const now = new Date();
+      const timeStr = now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+      
+      feedHistory.unshift({
+        time: timeStr,
+        source: source
+      });
+
+      // เก็บไว้ไม่เกิน 20 รายการล่าสุด
+      if (feedHistory.length > 20) {
+        feedHistory.pop();
+      }
     }
   });
 }
@@ -44,7 +60,6 @@ let schedules = [
   { id: 5, time: '', days: [], enabled: false }
 ];
 
-// ตารางแปลงวันภาษาไทย เป็น รหัสวันในระบบ
 const dayMap = {
   'อา': 'sun', 'จ': 'mon', 'อ': 'tue', 'พ': 'wed', 'พฤ': 'thu', 'ศ': 'fri', 'ส': 'sat',
   'อาทิตย์': 'sun', 'จันทร์': 'mon', 'อังคาร': 'tue', 'พุธ': 'wed', 'พฤหัส': 'thu', 'ศุกร์': 'fri', 'เสาร์': 'sat',
@@ -55,312 +70,370 @@ const dayThaiName = {
   'sun': 'อา', 'mon': 'จ', 'tue': 'อ', 'wed': 'พ', 'thu': 'พฤ', 'fri': 'ศ', 'sat': 'ส'
 };
 
+// ตรวจสอบตารางเวลาทุกๆ 1 วินาที
 setInterval(() => {
   const now = new Date();
   const options = { timeZone: 'Asia/Bangkok', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' };
   const formatter = new Intl.DateTimeFormat('en-US', options);
   const parts = formatter.formatToParts(now);
-  
+
   let currentHour = '', currentMinute = '', currentSecond = '', currentDay = '';
-  parts.forEach(p => {
-    if (p.type === 'hour') currentHour = p.value;
-    if (p.type === 'minute') currentMinute = p.value;
-    if (p.type === 'second') currentSecond = p.value;
-    if (p.type === 'weekday') currentDay = p.value.toLowerCase();
-  });
+  for (const part of parts) {
+    if (part.type === 'hour') currentHour = part.value;
+    if (part.type === 'minute') currentMinute = part.value;
+    if (part.type === 'second') currentSecond = part.value;
+    if (part.type === 'weekday') currentDay = part.value.toLowerCase();
+  }
 
-  const currentTimeStr = `${currentHour}:${currentMinute}`;
-
+  // ทำงานเมื่อวินาทีที่ 00 เพื่อป้องกันการสั่งซ้ำหลายครั้งในวินาทีเดียวกัน
   if (currentSecond === '00') {
-    schedules.forEach(item => {
-      if (item.enabled && item.time === currentTimeStr && item.days.includes(currentDay)) {
-        console.log(`⏰ Schedule Triggered! ID: ${item.id} Time: ${item.time}`);
-        triggerFeeding(`Schedule ID ${item.id}`);
+    const currentTimeStr = `${currentHour}:${currentMinute}`;
+    schedules.forEach((sch) => {
+      if (sch.enabled && sch.time === currentTimeStr && sch.days.includes(currentDay)) {
+        triggerFeeding(`Schedule #${sch.id}`);
       }
     });
   }
 }, 1000);
 
-// ==================== 4. ตั้งค่า Express Server & Web Dashboard ====================
+// ==================== 4. Express Web Server ====================
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-app.get('/api/schedules', express.json(), (req, res) => res.json(schedules));
-app.post('/api/schedules', express.json(), (req, res) => {
-  schedules = req.body;
-  console.log('📅 Schedules Updated:', JSON.stringify(schedules));
-  res.json({ success: true, schedules });
-});
-
-app.post('/api/feed', express.json(), (req, res) => {
-  triggerFeeding('Web App');
-  res.json({ success: true, message: 'Feeding triggered!' });
-});
-
-app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="th">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Smart Pet Feeder Dashboard</title>
-      <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
-      <style>
-        * { box-sizing: border-box; font-family: 'Kanit', sans-serif; }
-        body { background: #f0f2f5; margin: 0; padding: 20px 10px; display: flex; justify-content: center; }
-        .card { background: white; border-radius: 20px; padding: 25px; width: 100%; max-width: 480px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); }
-        h1 { text-align: center; color: #1a202c; font-size: 22px; margin-top: 0; }
-        .feed-now-btn { width: 100%; background: linear-gradient(135deg, #ff7e5f, #feb47b); color: white; border: none; padding: 15px; font-size: 18px; font-weight: 600; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 15px rgba(255,126,95,0.4); margin-bottom: 25px; }
-        .feed-now-btn:active { transform: scale(0.98); }
-        .section-title { font-size: 16px; font-weight: 600; color: #4a5568; margin-bottom: 12px; border-bottom: 2px solid #edf2f7; padding-bottom: 5px; }
-        .sched-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
-        .sched-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .sched-title { font-weight: 600; color: #2d3748; }
-        .time-input { padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e0; font-size: 15px; }
-        .days-box { display: flex; gap: 4px; margin-top: 8px; justify-content: space-between; }
-        .day-btn { flex: 1; padding: 6px 0; border: 1px solid #cbd5e0; background: white; border-radius: 6px; font-size: 12px; cursor: pointer; text-align: center; }
-        .day-btn.active { background: #3182ce; color: white; border-color: #3182ce; }
-        .switch { position: relative; display: inline-block; width: 44px; height: 22px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .3s; border-radius: 22px; }
-        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
-        input:checked + .slider { background-color: #48bb78; }
-        input:checked + .slider:before { transform: translateX(22px); }
-        .save-btn { width: 100%; background: #3182ce; color: white; border: none; padding: 12px; font-size: 16px; font-weight: 600; border-radius: 10px; cursor: pointer; margin-top: 15px; }
-        #status { text-align: center; margin-top: 10px; font-weight: 500; min-height: 24px; }
-      </style>
-    </head>
-    <body>
-      <div class="card">
-        <h1>🐾 Smart Pet Feeder</h1>
-        <button class="feed-now-btn" onclick="feedNow()">🍖 สั่งให้อาหารทันที</button>
-        <div class="section-title">⏰ ตั้งเวลาให้อาหารอัตโนมัติ (5 ช่วงเวลา)</div>
-        <div id="schedules-container"></div>
-        <button class="save-btn" onclick="saveSchedules()">💾 บันทึกการตั้งเวลา</button>
-        <div id="status"></div>
-      </div>
-
-      <script>
-        const dayNames = [
-          { key: 'sun', label: 'อา' }, { key: 'mon', label: 'จ' }, { key: 'tue', label: 'อ' },
-          { key: 'wed', label: 'พ' }, { key: 'thu', label: 'พฤ' }, { key: 'fri', label: 'ศ' }, { key: 'sat', label: 'ส' }
-        ];
-
-        let currentSchedules = [];
-
-        async function loadSchedules() {
-          const res = await fetch('/api/schedules');
-          currentSchedules = await res.json();
-          renderSchedules();
-        }
-
-        function renderSchedules() {
-          const container = document.getElementById('schedules-container');
-          container.innerHTML = '';
-
-          currentSchedules.forEach((item, index) => {
-            const card = document.createElement('div');
-            card.className = 'sched-card';
-            
-            let daysHtml = dayNames.map(d => {
-              const active = item.days.includes(d.key) ? 'active' : '';
-              return \`<button class="day-btn \${active}" onclick="toggleDay(\${index}, '\${d.key}')">\${d.label}</button>\`;
-            }).join('');
-
-            card.innerHTML = \`
-              <div class="sched-header">
-                <span class="sched-title">ช่วงเวลาที่ \${item.id}</span>
-                <input type="time" class="time-input" value="\${item.time}" onchange="updateTime(\${index}, this.value)">
-                <label class="switch">
-                  <input type="checkbox" \${item.enabled ? 'checked' : ''} onchange="toggleEnable(\${index}, this.checked)">
-                  <span class="slider"></span>
-                </label>
-              </div>
-              <div class="days-box">\${daysHtml}</div>
-            \`;
-            container.appendChild(card);
-          });
-        }
-
-        function updateTime(index, val) { currentSchedules[index].time = val; }
-        function toggleEnable(index, val) { currentSchedules[index].enabled = val; }
-        function toggleDay(index, dayKey) {
-          const days = currentSchedules[index].days;
-          const dIdx = days.indexOf(dayKey);
-          if (dIdx > -1) days.splice(dIdx, 1);
-          else days.push(dayKey);
-          renderSchedules();
-        }
-
-        async function saveSchedules() {
-          const statusDiv = document.getElementById('status');
-          statusDiv.style.color = '#3182ce';
-          statusDiv.innerText = '⏳ กำลังบันทึกข้อมูล...';
-          
-          await fetch('/api/schedules', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(currentSchedules)
-          });
-
-          statusDiv.style.color = '#38a169';
-          statusDiv.innerText = '✅ บันทึกตารางเวลาเรียบร้อยแล้ว!';
-          setTimeout(() => { statusDiv.innerText = ''; }, 3000);
-        }
-
-        async function feedNow() {
-          const statusDiv = document.getElementById('status');
-          statusDiv.style.color = '#ff7e5f';
-          statusDiv.innerText = '⏳ กำลังส่งสัญญาณให้อาหาร...';
-          
-          await fetch('/api/feed', { method: 'POST' });
-          statusDiv.style.color = '#38a169';
-          statusDiv.innerText = '✅ สั่งให้อาหารเรียบร้อย!';
-          setTimeout(() => { statusDiv.innerText = ''; }, 3000);
-        }
-
-        loadSchedules();
-      </script>
-    </body>
-    </html>
-  `);
-});
-
-// ==================== 5. Webhook สำหรับ LINE OA ====================
+// Router สำหรับ Webhook ของ LINE
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
-  if (req.body.events && req.body.events.length === 0) {
-    return res.status(200).json({ status: 'ok' });
-  }
-
   Promise.all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
-      console.error('Error handling event:', err);
+      console.error(err);
       res.status(500).end();
     });
 });
 
-async function handleEvent(event) {
-  if (event.replyToken === '00000000000000000000000000000000' || event.replyToken === 'ffffffffffffffffffffffffffffffff') {
-    return Promise.resolve(null);
-  }
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+// API endpoints สำหรับรับ-ส่งข้อมูลตารางเวลาและประวัติ
+app.get('/api/schedules', (req, res) => {
+  res.json(schedules);
+});
+
+app.post('/api/schedules', (req, res) => {
+  if (Array.isArray(req.body)) {
+    schedules = req.body;
+  }
+  res.json({ status: 'ok', schedules });
+});
+
+app.get('/api/history', (req, res) => {
+  res.json(feedHistory);
+});
+
+app.post('/api/feed', (req, res) => {
+  triggerFeeding('Web App');
+  res.json({ status: 'ok', message: 'Triggered feeding from Web App' });
+});
+
+// หน้า Web UI หลัก
+app.get('/', (req, res) => {
+  res.send(`
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pet Feeder Control Panel</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f4f6f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .card { border-radius: 15px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .btn-feed { font-size: 1.5rem; font-weight: bold; padding: 15px 30px; border-radius: 50px; }
+    .day-checkbox { display: inline-block; margin-right: 5px; }
+    .day-checkbox input { display: none; }
+    .day-checkbox label { padding: 5px 10px; border: 1px solid #ddd; border-radius: 20px; cursor: pointer; font-size: 0.85rem; }
+    .day-checkbox input:checked + label { background-color: #0d6efd; color: white; border-color: #0d6efd; }
+  </style>
+</head>
+<body>
+  <div class="container py-4">
+    <h2 class="text-center mb-4 font-weight-bold">🐱 Pet Feeder Control Panel 🐶</h2>
+
+    <!-- ปุ่มให้อาหารทันที -->
+    <div class="row justify-content-center mb-4">
+      <div class="col-md-6 text-center">
+        <div class="card p-4">
+          <h4 class="mb-3">สั่งให้อาหารทันที</h4>
+          <button class="btn btn-warning text-white btn-feed w-100" onclick="feedNow()">🍖 ให้อาหารเลย!</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <!-- ตารางเวลา -->
+      <div class="col-lg-7 mb-4">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="m-0">⏰ ตารางเวลาตั้งสาย (5 ช่วงเวลา)</h4>
+            <button class="btn btn-primary btn-sm" onclick="saveSchedules()">💾 บันทึกตารางเวลา</button>
+          </div>
+          <div id="scheduleContainer"></div>
+        </div>
+      </div>
+
+      <!-- ประวัติการให้อาหาร -->
+      <div class="col-lg-5 mb-4">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="m-0">📜 ประวัติการให้อาหาร</h4>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadHistory()">🔄 รีเฟรช</button>
+          </div>
+          <ul class="list-group list-group-flush" id="historyList">
+            <li class="list-group-item text-muted text-center">กำลังโหลดข้อมูล...</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const daysArr = [
+      { key: 'sun', label: 'อา' },
+      { key: 'mon', label: 'จ' },
+      { key: 'tue', label: 'อ' },
+      { key: 'wed', label: 'พ' },
+      { key: 'thu', label: 'พฤ' },
+      { key: 'fri', label: 'ศ' },
+      { key: 'sat', label: 'ส' }
+    ];
+
+    async function loadSchedules() {
+      const res = await fetch('/api/schedules');
+      const data = await res.json();
+      renderSchedules(data);
+    }
+
+    function renderSchedules(schedules) {
+      const container = document.getElementById('scheduleContainer');
+      container.innerHTML = '';
+
+      schedules.forEach((sch, index) => {
+        let daysHtml = daysArr.map(d => {
+          const checked = sch.days.includes(d.key) ? 'checked' : '';
+          return \`
+            <div class="day-checkbox">
+              <input type="checkbox" id="sch_\${sch.id}_\${d.key}" value="\${d.key}" \${checked}>
+              <label for="sch_\${sch.id}_\${d.key}">\${d.label}</label>
+            </div>
+          \`;
+        }).join('');
+
+        const html = \`
+          <div class="border-bottom py-3">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span class="fw-bold">ช่วงเวลาที่ \${sch.id}</span>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="enable_\${sch.id}" \${sch.enabled ? 'checked' : ''}>
+                <label class="form-check-label" for="enable_\${sch.id}">เปิดใช้งาน</label>
+              </div>
+            </div>
+            <div class="row align-items-center">
+              <div class="col-md-4 mb-2 mb-md-0">
+                <input type="time" class="form-control" id="time_\${sch.id}" value="\${sch.time}">
+              </div>
+              <div class="col-md-8">
+                \${daysHtml}
+              </div>
+            </div>
+          </div>
+        \`;
+        container.innerHTML += html;
+      });
+    }
+
+    async function saveSchedules() {
+      let updatedSchedules = [];
+      for (let i = 1; i <= 5; i++) {
+        const time = document.getElementById(\`time_\${i}\`).value;
+        const enabled = document.getElementById(\`enable_\${i}\`).checked;
+        let selectedDays = [];
+        daysArr.forEach(d => {
+          if (document.getElementById(\`sch_\${i}_\${d.key}\`).checked) {
+            selectedDays.push(d.key);
+          }
+        });
+
+        updatedSchedules.push({
+          id: i,
+          time: time,
+          days: selectedDays,
+          enabled: enabled
+        });
+      }
+
+      await fetch('/api/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedSchedules)
+      });
+
+      alert('✅ บันทึกตารางเวลาเรียบร้อยแล้ว!');
+    }
+
+    async function feedNow() {
+      if (confirm('ยืนยันการให้อาหารทันที?')) {
+        await fetch('/api/feed', { method: 'POST' });
+        alert('🚀 ส่งคำสั่งให้อาหารเรียบร้อยแล้ว!');
+        loadHistory();
+      }
+    }
+
+    async function loadHistory() {
+      const res = await fetch('/api/history');
+      const data = await res.json();
+      const list = document.getElementById('historyList');
+      
+      if (data.length === 0) {
+        list.innerHTML = '<li class="list-group-item text-muted text-center">ยังไม่มีประวัติการให้อาหาร</li>';
+        return;
+      }
+
+      list.innerHTML = data.map(item => \`
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            <span class="badge bg-info text-dark me-2">\${item.source}</span>
+            <span>\${item.time}</span>
+          </div>
+          <span class="text-success">✓ สำเร็จ</span>
+        </li>
+      \`).join('');
+    }
+
+    // โหลดข้อมูลเมื่อเปิดหน้าเว็บ
+    loadSchedules();
+    loadHistory();
+
+    // อัปเดตประวัติทุกๆ 10 วินาที
+    setInterval(loadHistory, 10000);
+  </script>
+</body>
+</html>
+  `);
+});
+
+// ==================== 5. จัดการ Event จาก LINE ====================
+async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
 
   const userText = event.message.text.trim();
-  const lowerText = userText.toLowerCase();
-  console.log(`📩 Received message from LINE: "${userText}"`);
 
-  // 1. สั่งให้อาหารทันที (เพิ่มคำว่า ให้, ปล่อย, อาหาร)
-  if (['ให้อาหาร', 'ให้', 'ปล่อย', 'feed', 'อาหาร'].includes(lowerText)) {
-    triggerFeeding('LINE OA');
+  // 1. คำสั่งให้อาหารทันที
+  if (userText === 'ให้อาหาร' || userText === 'Feed' || userText === 'feed') {
+    triggerFeeding('LINE Bot');
     return lineClient.replyMessage(event.replyToken, {
       type: 'text',
-      text: '🐾 จ่ายอาหารเรียบร้อยแล้วครับ!'
+      text: '🚀 ส่งคำสั่งให้อาหารไปยังเครื่องจ่ายอาหารเรียบร้อยแล้วครับ!'
     });
   }
 
-  // 2. คำสั่งดูตารางเวลาปัจจุบัน
-  if (['ดูตาราง', 'เช็คเวลา', 'ตารางเวลา'].includes(lowerText)) {
-    let replyMsg = '⏰ ตารางเวลาให้อาหารปัจจุบัน:\n';
+  // 2. คำสั่งดูตารางเวลา
+  if (userText === 'ดูตารางเวลา' || userText === 'ตารางเวลา') {
+    let replyMsg = '⏰ ตารางเวลาการให้อาหารทั้งหมด:\n\n';
     schedules.forEach(s => {
-      const statusStr = s.enabled ? '🟢 เปิด' : '🔴 ปิด';
-      const timeStr = s.time || '--:--';
-      const daysStr = s.days.length > 0 ? s.days.map(d => dayThaiName[d]).join(',') : 'ไม่ได้เลือกวัน';
-      replyMsg += `\nช่วงที่ ${s.id}: ${timeStr} น. [${statusStr}]\nวัน: ${daysStr}\n`;
+      const status = s.enabled ? '🟢 เปิด' : '🔴 ปิด';
+      const daysStr = s.days.map(d => dayThaiName[d]).join(', ') || 'ไม่ได้เลือกวัน';
+      replyMsg += `ช่วงที่ ${s.id}: ${s.time || '--:--'} [${daysStr}] (${status})\n`;
     });
-    return lineClient.replyMessage(event.replyToken, { type: 'text', text: replyMsg.trim() });
+    return lineClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyMsg
+    });
   }
 
-  // 3. คำสั่งตั้งเวลาผ่าน LINE (เช่น "ตั้งเวลา 1 08:30" หรือ "ตั้งเวลา 2 18:00")
+  // 3. คำสั่งดูประวัติการให้อาหาร
+  if (userText === 'ประวัติ' || userText === 'ดูประวัติ') {
+    if (feedHistory.length === 0) {
+      return lineClient.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '📜 ยังไม่มีประวัติการให้อาหารในระบบครับ'
+      });
+    }
+
+    let replyMsg = '📜 ประวัติการให้อาหารย้อนหลัง:\n\n';
+    feedHistory.slice(0, 10).forEach((item, idx) => {
+      replyMsg += `${idx + 1}. [${item.source}] ${item.time}\n`;
+    });
+
+    return lineClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: replyMsg
+    });
+  }
+
+  // 4. คำสั่งตั้งเวลาผ่าน LINE
+  // รูปแบบ: ตั้งเวลา [ลำดับ 1-5] [HH:mm] [วัน เช่น จ,พ,ศ หรือ ทุกวัน]
   if (userText.startsWith('ตั้งเวลา')) {
-    const parts = userText.split(/\s+/);
+    const parts = userText.split(' ');
     if (parts.length >= 3) {
-      const slotIndex = parseInt(parts[1]) - 1;
-      const timeVal = parts[2];
-      const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
+      const id = parseInt(parts[1]);
+      const time = parts[2];
+      const daysInput = parts[3] || 'ทุกวัน';
 
-      if (slotIndex >= 0 && slotIndex < 5 && timeRegex.test(timeVal)) {
-        schedules[slotIndex].time = timeVal;
-        schedules[slotIndex].enabled = true;
-        
-        // ถ้ายังไม่มีวัน ให้เปิดใช้ทุกวันเป็นค่าเริ่มต้น
-        if (schedules[slotIndex].days.length === 0) {
-          schedules[slotIndex].days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-        }
-
-        return lineClient.replyMessage(event.replyToken, {
-          type: 'text',
-          text: `✅ ตั้งเวลาช่วงที่ ${slotIndex + 1} เป็น ${timeVal} น. เรียบร้อยแล้วครับ!`
-        });
-      }
-    }
-    return lineClient.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '⚠️ รูปแบบไม่ถูกต้อง!\nกรุณาพิมพ์เช่น: ตั้งเวลา 1 08:30 (ตั้งเวลา ช่วงที่1 เวลา 08:30)'
-    });
-  }
-
-  // 4. คำสั่งตั้งวันผ่าน LINE (เช่น "ตั้งวัน 1 จ,พ,ศ" หรือ "ตั้งวัน 1 ทุกวัน")
-  if (userText.startsWith('ตั้งวัน')) {
-    const parts = userText.split(/\s+/);
-    if (parts.length >= 3) {
-      const slotIndex = parseInt(parts[1]) - 1;
-      const daysInput = parts[2];
-
-      if (slotIndex >= 0 && slotIndex < 5) {
+      if (id >= 1 && id <= 5 && /^\d{2}:\d{2}$/.test(time)) {
+        let selectedDays = [];
         if (daysInput === 'ทุกวัน') {
-          schedules[slotIndex].days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+          selectedDays = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
         } else {
-          const rawDays = daysInput.split(/[,,\s]+/);
-          const selectedDays = [];
-          
-          rawDays.forEach(d => {
-            if (dayMap[d]) selectedDays.push(dayMap[d]);
+          const splitDays = daysInput.split(',');
+          splitDays.forEach(d => {
+            const mapped = dayMap[d.trim()];
+            if (mapped) selectedDays.push(mapped);
           });
-
-          if (selectedDays.length > 0) {
-            schedules[slotIndex].days = [...new Set(selectedDays)];
-          } else {
-            return lineClient.replyMessage(event.replyToken, {
-              type: 'text',
-              text: '⚠️ ไม่พบชื่อวัน กรุณาพิมพ์ เช่น: จ,พ,ศ หรือ ทุกวัน'
-            });
-          }
         }
 
-        const daysDisplay = schedules[slotIndex].days.map(d => dayThaiName[d]).join(',');
+        schedules[id - 1] = {
+          id: id,
+          time: time,
+          days: selectedDays,
+          enabled: true
+        };
+
+        const daysStr = selectedDays.map(d => dayThaiName[d]).join(', ');
         return lineClient.replyMessage(event.replyToken, {
           type: 'text',
-          text: `✅ ตั้งวันสำหรับช่วงที่ ${slotIndex + 1} เป็น [ ${daysDisplay} ] เรียบร้อยแล้วครับ!`
+          text: `✅ ตั้งเวลาช่วงที่ ${id} เรียบร้อยแล้ว!\n⏰ เวลา: ${time}\n📅 วัน: ${daysStr}`
         });
       }
     }
+
     return lineClient.replyMessage(event.replyToken, {
       type: 'text',
-      text: '⚠️ รูปแบบไม่ถูกต้อง!\nกรุณาพิมพ์เช่น: ตั้งวัน 1 จ,พ,ศ หรือ ตั้งวัน 1 ทุกวัน'
+      text: '❌ รูปแบบคำสั่งไม่ถูกต้อง!\nตัวอย่าง: ตั้งเวลา 1 08:00 จ,พ,ศ หรือ ตั้งเวลา 2 18:30 ทุกวัน'
     });
   }
 
-  // คำแนะนำเมื่อพิมพ์คำสั่งที่ไม่รู้จัก
+  // 5. คำสั่งปิดตารางเวลาผ่าน LINE
+  if (userText.startsWith('ปิดเวลา')) {
+    const parts = userText.split(' ');
+    const id = parseInt(parts[1]);
+    if (id >= 1 && id <= 5) {
+      schedules[id - 1].enabled = false;
+      return lineClient.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `🔴 ปิดใช้งานตารางเวลาช่วงที่ ${id} เรียบร้อยแล้ว`
+      });
+    }
+  }
+
+  // ข้อความช่วยเหลือทั่วไป
   return lineClient.replyMessage(event.replyToken, {
     type: 'text',
-    text: '📌 คู่มือคำสั่งที่ใช้งานได้:\n\n1️⃣ สั่งจ่ายอาหารทันที:\n- พิมพ์ "ให้", "ปล่อย", "ให้อาหาร" หรือ "FEED"\n\n2️⃣ ดูตารางเวลา:\n- พิมพ์ "ดูตาราง"\n\n3️⃣ ตั้งเวลา (ช่วงที่ 1-5):\n- พิมพ์ "ตั้งเวลา 1 08:30"\n\n4️⃣ ตั้งวัน (ช่วงที่ 1-5):\n- พิมพ์ "ตั้งวัน 1 จ,พ,ศ" หรือ "ตั้งวัน 1 ทุกวัน"'
+    text: '🤖 คำสั่งที่สามารถใช้ได้:\n- "ให้อาหาร" : สั่งจ่ายอาหารทันที\n- "ตารางเวลา" : ดูตารางเวลาตั้งไว้\n- "ประวัติ" : ดูประวัติการให้อาหาร\n- "ตั้งเวลา [1-5] [เวลา] [วัน]" : ตั้งเวลาจ่ายอาหาร\n  (เช่น ตั้งเวลา 1 07:30 ทุกวัน)\n- "ปิดเวลา [1-5]" : ปิดตารางเวลา'
   });
 }
 
-// ==================== 6. รัน Server & Self-Ping ====================
+// ==================== 6. เริ่มทำงาน Server ====================
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  
-  setInterval(() => {
-    https.get('https://petfeeder-backend-ylcj.onrender.com', (res) => {
-      console.log(`⏰ Self-ping status: ${res.statusCode}`);
-    }).on('error', (err) => {
-      console.log('⚠ Self-ping failed:', err.message);
-    });
-  }, 10 * 60 * 1000);
+  console.log(`🚀 Server is running on port ${PORT}`);
 });
