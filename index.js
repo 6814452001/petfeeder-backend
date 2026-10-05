@@ -5,7 +5,7 @@ const https = require('https');
 
 // ==================== 1. ตั้งค่า LINE Client ====================
 const lineConfig = {
-  channelAccessToken: 'Q6HL6BPXBNUOk0w/LJi1z5gsY8suwI6xp+eTDX1YoJGETMn4nZdU10J2osD9gngKOg1ND53ixoYcPY0dxqe8R49/eRFNYK7P1Kuvg6BoCbbjQiRf920Y667qMawKVqSe2u3VoCnjNKvS01q18Fk0cAdB04t89/10/w1cDnyi1FU=',
+  channelAccessToken: 'T2PczsnGdCNLy61ozmQfmvdCWCajw1Xske+SeH914xIeObVqoMFMhgijlDvElZ5ROglND53ixoYcPY0dxqe8R49/eRFNYK7P1Kuvg6BoCbY5MgcvtyZaV8oDxiZaKfk4k67ZexyrOAlQ7tbooE9Q4QdB04t89/1O/w1cDnyilFU=',
   channelSecret: '5b860a740ca5d2c267455fd8f198f01c'
 };
 
