@@ -5,7 +5,7 @@ const https = require('https');
 
 // ==================== 1. ตั้งค่า LINE Client ====================
 const lineConfig = {
-  channelAccessToken: 'T2PczsnGdCNLy61ozmQfmvdCWCajw1Xske+SeH914xIeObVqoMFMhgijlDvElZ5ROglND53ixoYcPY0dxqe8R49/eRFNYK7P1Kuvg6BoCbY5MgcvtyZaV8oDxiZaKfk4k67ZexyrOAlQ7tbooE9Q4QdB04t89/1O/w1cDnyilFU=',
+  channelAccessToken: 'วาง_TOKEN_ใหม่ที่เพิ่ง_ISSUE_จาก_LINE_CONSOLE_ตรงนี้',
   channelSecret: '5b860a740ca5d2c267455fd8f198f01c'
 };
 
@@ -35,7 +35,7 @@ function triggerFeeding(source = 'Unknown') {
   });
 }
 
-// ==================== 3. ระบบตั้งเวลาให้อาหาร (Scheduler) ====================
+// ==================== 3. ระบบตารางเวลา (Scheduler 5 ช่วงเวลา) ====================
 let schedules = [
   { id: 1, time: '', days: [], enabled: false },
   { id: 2, time: '', days: [], enabled: false },
@@ -43,6 +43,17 @@ let schedules = [
   { id: 4, time: '', days: [], enabled: false },
   { id: 5, time: '', days: [], enabled: false }
 ];
+
+// ตารางแปลงวันภาษาไทย เป็น รหัสวันในระบบ
+const dayMap = {
+  'อา': 'sun', 'จ': 'mon', 'อ': 'tue', 'พ': 'wed', 'พฤ': 'thu', 'ศ': 'fri', 'ส': 'sat',
+  'อาทิตย์': 'sun', 'จันทร์': 'mon', 'อังคาร': 'tue', 'พุธ': 'wed', 'พฤหัส': 'thu', 'ศุกร์': 'fri', 'เสาร์': 'sat',
+  'sun': 'sun', 'mon': 'mon', 'tue': 'tue', 'wed': 'wed', 'thu': 'thu', 'fri': 'fri', 'sat': 'sat'
+};
+
+const dayThaiName = {
+  'sun': 'อา', 'mon': 'จ', 'tue': 'อ', 'wed': 'พ', 'thu': 'พฤ', 'fri': 'ศ', 'sat': 'ส'
+};
 
 setInterval(() => {
   const now = new Date();
@@ -70,11 +81,10 @@ setInterval(() => {
   }
 }, 1000);
 
-// ==================== 4. ตั้งค่า Express Server ====================
+// ==================== 4. ตั้งค่า Express Server & Web Dashboard ====================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// API สำหรับดึงและบันทึกตารางเวลา
 app.get('/api/schedules', express.json(), (req, res) => res.json(schedules));
 app.post('/api/schedules', express.json(), (req, res) => {
   schedules = req.body;
@@ -82,13 +92,11 @@ app.post('/api/schedules', express.json(), (req, res) => {
   res.json({ success: true, schedules });
 });
 
-// Endpoint API สำหรับกดปุ่มสั่งให้อาหารจากเว็บ
 app.post('/api/feed', express.json(), (req, res) => {
   triggerFeeding('Web App');
   res.json({ success: true, message: 'Feeding triggered!' });
 });
 
-// UI หน้าเว็บ Dashboard
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -127,10 +135,8 @@ app.get('/', (req, res) => {
       <div class="card">
         <h1>🐾 Smart Pet Feeder</h1>
         <button class="feed-now-btn" onclick="feedNow()">🍖 สั่งให้อาหารทันที</button>
-        
         <div class="section-title">⏰ ตั้งเวลาให้อาหารอัตโนมัติ (5 ช่วงเวลา)</div>
         <div id="schedules-container"></div>
-        
         <button class="save-btn" onclick="saveSchedules()">💾 บันทึกการตั้งเวลา</button>
         <div id="status"></div>
       </div>
@@ -221,11 +227,9 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ==================== 5. Webhook สำหรับ LINE OA (ปรับปรุงรองรับ Test Verify) ====================
+// ==================== 5. Webhook สำหรับ LINE OA ====================
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
-  // ตรวจสอบว่าเป็น Test Event จากปุ่ม Verify ใน LINE Console หรือไม่
   if (req.body.events && req.body.events.length === 0) {
-    console.log('✅ LINE Verification Test Event Received!');
     return res.status(200).json({ status: 'ok' });
   }
 
@@ -238,7 +242,6 @@ app.post('/webhook', line.middleware(lineConfig), (req, res) => {
 });
 
 async function handleEvent(event) {
-  // รองรับกรณีเป็น Test Event ของ LINE ที่มี replyToken เป็น 00000000000000000000000000000000
   if (event.replyToken === '00000000000000000000000000000000' || event.replyToken === 'ffffffffffffffffffffffffffffffff') {
     return Promise.resolve(null);
   }
@@ -248,20 +251,105 @@ async function handleEvent(event) {
   }
 
   const userText = event.message.text.trim();
+  const lowerText = userText.toLowerCase();
   console.log(`📩 Received message from LINE: "${userText}"`);
 
-  if (userText === 'ให้อาหาร' || userText.toUpperCase() === 'FEED') {
+  // 1. สั่งให้อาหารทันที (เพิ่มคำว่า ให้, ปล่อย, อาหาร)
+  if (['ให้อาหาร', 'ให้', 'ปล่อย', 'feed', 'อาหาร'].includes(lowerText)) {
     triggerFeeding('LINE OA');
     return lineClient.replyMessage(event.replyToken, {
       type: 'text',
       text: '🐾 จ่ายอาหารเรียบร้อยแล้วครับ!'
     });
-  } else {
+  }
+
+  // 2. คำสั่งดูตารางเวลาปัจจุบัน
+  if (['ดูตาราง', 'เช็คเวลา', 'ตารางเวลา'].includes(lowerText)) {
+    let replyMsg = '⏰ ตารางเวลาให้อาหารปัจจุบัน:\n';
+    schedules.forEach(s => {
+      const statusStr = s.enabled ? '🟢 เปิด' : '🔴 ปิด';
+      const timeStr = s.time || '--:--';
+      const daysStr = s.days.length > 0 ? s.days.map(d => dayThaiName[d]).join(',') : 'ไม่ได้เลือกวัน';
+      replyMsg += `\nช่วงที่ ${s.id}: ${timeStr} น. [${statusStr}]\nวัน: ${daysStr}\n`;
+    });
+    return lineClient.replyMessage(event.replyToken, { type: 'text', text: replyMsg.trim() });
+  }
+
+  // 3. คำสั่งตั้งเวลาผ่าน LINE (เช่น "ตั้งเวลา 1 08:30" หรือ "ตั้งเวลา 2 18:00")
+  if (userText.startsWith('ตั้งเวลา')) {
+    const parts = userText.split(/\s+/);
+    if (parts.length >= 3) {
+      const slotIndex = parseInt(parts[1]) - 1;
+      const timeVal = parts[2];
+      const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
+
+      if (slotIndex >= 0 && slotIndex < 5 && timeRegex.test(timeVal)) {
+        schedules[slotIndex].time = timeVal;
+        schedules[slotIndex].enabled = true;
+        
+        // ถ้ายังไม่มีวัน ให้เปิดใช้ทุกวันเป็นค่าเริ่มต้น
+        if (schedules[slotIndex].days.length === 0) {
+          schedules[slotIndex].days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        }
+
+        return lineClient.replyMessage(event.replyToken, {
+          type: 'text',
+          text: `✅ ตั้งเวลาช่วงที่ ${slotIndex + 1} เป็น ${timeVal} น. เรียบร้อยแล้วครับ!`
+        });
+      }
+    }
     return lineClient.replyMessage(event.replyToken, {
       type: 'text',
-      text: 'พิมพ์คำว่า "ให้อาหาร" เพื่อสั่งงานครับ'
+      text: '⚠️ รูปแบบไม่ถูกต้อง!\nกรุณาพิมพ์เช่น: ตั้งเวลา 1 08:30 (ตั้งเวลา ช่วงที่1 เวลา 08:30)'
     });
   }
+
+  // 4. คำสั่งตั้งวันผ่าน LINE (เช่น "ตั้งวัน 1 จ,พ,ศ" หรือ "ตั้งวัน 1 ทุกวัน")
+  if (userText.startsWith('ตั้งวัน')) {
+    const parts = userText.split(/\s+/);
+    if (parts.length >= 3) {
+      const slotIndex = parseInt(parts[1]) - 1;
+      const daysInput = parts[2];
+
+      if (slotIndex >= 0 && slotIndex < 5) {
+        if (daysInput === 'ทุกวัน') {
+          schedules[slotIndex].days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        } else {
+          const rawDays = daysInput.split(/[,,\s]+/);
+          const selectedDays = [];
+          
+          rawDays.forEach(d => {
+            if (dayMap[d]) selectedDays.push(dayMap[d]);
+          });
+
+          if (selectedDays.length > 0) {
+            schedules[slotIndex].days = [...new Set(selectedDays)];
+          } else {
+            return lineClient.replyMessage(event.replyToken, {
+              type: 'text',
+              text: '⚠️ ไม่พบชื่อวัน กรุณาพิมพ์ เช่น: จ,พ,ศ หรือ ทุกวัน'
+            });
+          }
+        }
+
+        const daysDisplay = schedules[slotIndex].days.map(d => dayThaiName[d]).join(',');
+        return lineClient.replyMessage(event.replyToken, {
+          type: 'text',
+          text: `✅ ตั้งวันสำหรับช่วงที่ ${slotIndex + 1} เป็น [ ${daysDisplay} ] เรียบร้อยแล้วครับ!`
+        });
+      }
+    }
+    return lineClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⚠️ รูปแบบไม่ถูกต้อง!\nกรุณาพิมพ์เช่น: ตั้งวัน 1 จ,พ,ศ หรือ ตั้งวัน 1 ทุกวัน'
+    });
+  }
+
+  // คำแนะนำเมื่อพิมพ์คำสั่งที่ไม่รู้จัก
+  return lineClient.replyMessage(event.replyToken, {
+    type: 'text',
+    text: '📌 คู่มือคำสั่งที่ใช้งานได้:\n\n1️⃣ สั่งจ่ายอาหารทันที:\n- พิมพ์ "ให้", "ปล่อย", "ให้อาหาร" หรือ "FEED"\n\n2️⃣ ดูตารางเวลา:\n- พิมพ์ "ดูตาราง"\n\n3️⃣ ตั้งเวลา (ช่วงที่ 1-5):\n- พิมพ์ "ตั้งเวลา 1 08:30"\n\n4️⃣ ตั้งวัน (ช่วงที่ 1-5):\n- พิมพ์ "ตั้งวัน 1 จ,พ,ศ" หรือ "ตั้งวัน 1 ทุกวัน"'
+  });
 }
 
 // ==================== 6. รัน Server & Self-Ping ====================
