@@ -17,7 +17,7 @@ const MQTT_TOPIC  = 'petfeeder/command';
 const mqttClient = mqtt.connect(MQTT_BROKER);
 
 // ปรับระยะเวลาสั่งหมุนให้เร็วขึ้น เหลือเพียง 200 มิลลิวินาที (0.2 วินาที)
-const FEEDING_DURATION_MS = 200; 
+const FEEDING_DURATION_MS = 100; 
 
 mqttClient.on('connect', () => {
   console.log('✅ Connected to HiveMQ Broker!');
