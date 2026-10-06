@@ -56,11 +56,11 @@ function triggerFeeding(source = 'Unknown') {
 
 // ==================== 3. ระบบตารางเวลา (5 ช่วงเวลา) ====================
 let schedules = [
-  { id: 1, time: '', days: [], enabled: false },
-  { id: 2, time: '', days: [], enabled: false },
-  { id: 3, time: '', days: [], enabled: false },
-  { id: 4, time: '', days: [], enabled: false },
-  { id: 5, time: '', days: [], enabled: false }
+  { id: 1, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false },
+  { id: 2, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false },
+  { id: 3, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false },
+  { id: 4, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false },
+  { id: 5, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false }
 ];
 
 const dayThaiName = {
@@ -356,7 +356,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ==================== 5. LINE Webhook Handler (เพิ่ม Quick Reply ทุกการตอบกลับ) ====================
+// ==================== 5. LINE Webhook Handler ====================
 
 const quickReplyMenu = {
   items: [
@@ -395,7 +395,27 @@ async function handleEvent(event) {
     });
   }
 
-  // 2. คำสั่งเช็คตารางเวลา
+  // 2. ตรวจจับการสั่งตั้งเวลาแบบง่ายผ่านแชท (เช่น "ตั้งเวลา 08:30" หรือ "ตั้งเวลา 18:00")
+  const setTimeRegex = /(?:ตั้งเวลา|เวลา)\s*([0-2]?\d[:.]\d{2})/;
+  const match = userText.match(setTimeRegex);
+  if (match) {
+    let formattedTime = match[1].replace('.', ':');
+    const [h, m] = formattedTime.split(':');
+    formattedTime = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+
+    // ตั้งเวลาที่ช่วงที่ 1 และเปิดใช้งานทันทีทุกวัน
+    schedules[0].time = formattedTime;
+    schedules[0].enabled = true;
+    schedules[0].days = ['sun','mon','tue','wed','thu','fri','sat'];
+
+    return lineClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `⏰ บันทึกการตั้งเวลาสำเร็จ!\n\nตั้งเวลาให้อาหารช่วงที่ 1 เป็นเวลา ${formattedTime} น. (เปิดใช้งานทุกวัน) เรียบร้อยครับ 🟢`,
+      quickReply: quickReplyMenu
+    });
+  }
+
+  // 3. คำสั่งเช็คตารางเวลา
   const scheduleKeywords = ['ดูตาราง', 'เช็คเวลา', 'ตารางเวลา', 'ตาราง'];
   if (scheduleKeywords.includes(lowerText)) {
     let replyMsg = '⏰ ตารางเวลาให้อาหารปัจจุบัน:\n';
@@ -412,7 +432,7 @@ async function handleEvent(event) {
     });
   }
 
-  // 3. คำสั่งดูประวัติการให้อาหาร
+  // 4. คำสั่งดูประวัติการให้อาหาร
   const historyKeywords = ['ประวัติ', 'ดูประวัติ', 'ประวัติการให้อาหาร'];
   if (historyKeywords.includes(lowerText)) {
     if (feedHistory.length === 0) {
@@ -434,10 +454,10 @@ async function handleEvent(event) {
     });
   }
 
-  // 4. คำสั่งอื่นๆ ที่ไม่รู้จัก
+  // 5. คำสั่งอื่นๆ ที่ไม่รู้จัก
   return lineClient.replyMessage(event.replyToken, {
     type: 'text',
-    text: '📌 เลือกกดเมนูด้านล่างนี้ได้เลยครับ:',
+    text: '📌 วิธีใช้งานตั้งเวลาแบบง่าย:\nพิมพ์ เช่น "ตั้งเวลา 08:30" หรือ "ตั้งเวลา 18:00"\n\nหรือเลือกกดเมนูด้านล่างนี้ได้เลยครับ:',
     quickReply: quickReplyMenu
   });
 }
