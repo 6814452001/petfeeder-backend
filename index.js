@@ -359,8 +359,9 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ==================== 5. LINE Webhook Handler ====================
+// ==================== 5. LINE Webhook Handler (ปรับปรุงเพิ่มคำสั่ง + ปุ่มตอบกลับ) ====================
 async function handleEvent(event) {
+  // รับเฉพาะข้อความประเภท Text เท่านั้น
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
@@ -368,25 +369,46 @@ async function handleEvent(event) {
   const userText = event.message.text.trim();
   const lowerText = userText.toLowerCase();
 
-  if (['ให้อาหาร', 'ให้', 'ปล่อย', 'feed', 'อาหาร'].includes(lowerText)) {
+  // 1. คำสั่งสั่งให้อาหาร (รองรับคำอ่านภาษาไทยหลากหลายแบบ)
+  const feedKeywords = ['ให้อาหาร', 'ให้', 'ปล่อย', 'feed', 'อาหาร', 'สั่งให้อาหาร', 'จ่ายอาหาร', 'ขออาหาร'];
+  if (feedKeywords.includes(lowerText)) {
+    // ยิงคำสั่งเข้า MQTT ผ่านฟังก์ชัน triggerFeeding
     triggerFeeding('LINE Bot');
+
     return lineClient.replyMessage(event.replyToken, {
       type: 'text',
-      text: '🐾 จ่ายอาหารเรียบร้อยแล้วครับ!'
+      text: '🐾 รับคำสั่งเรียบร้อย! กำลังจ่ายอาหารให้สัตว์เลี้ยงครับ 🍖',
+      quickReply: {
+        items: [
+          {
+            type: 'action',
+            action: { type: 'message', label: '📜 ดูประวัติ', text: 'ประวัติ' }
+          },
+          {
+            type: 'action',
+            action: { type: 'message', label: '⏰ ดูตารางเวลา', text: 'ดูตาราง' }
+          }
+        ]
+      }
     });
   }
 
-  if (['ดูตาราง', 'เช็คเวลา', 'ตารางเวลา'].includes(lowerText)) {
+  // 2. คำสั่งเช็คตารางเวลา
+  const scheduleKeywords = ['ดูตาราง', 'เช็คเวลา', 'ตารางเวลา', 'ตาราง'];
+  if (scheduleKeywords.includes(lowerText)) {
     let replyMsg = '⏰ ตารางเวลาให้อาหารปัจจุบัน:\n';
     schedules.forEach(s => {
       const statusStr = s.enabled ? '🟢 เปิด' : '🔴 ปิด';
-      const daysStr = s.days.length > 0 ? s.days.map(d => dayThaiName[d]).join(',') : 'ไม่ได้เลือกวัน';
+      const daysStr = s.days.length > 0 ? s.days.map(d => dayThaiName[d]).join(', ') : 'ไม่ได้เลือกวัน';
       replyMsg += `\nช่วงที่ ${s.id}: ${s.time || '--:--'} น. [${statusStr}]\nวัน: ${daysStr}\n`;
     });
+
     return lineClient.replyMessage(event.replyToken, { type: 'text', text: replyMsg.trim() });
   }
 
-  if (['ประวัติ', 'ดูประวัติ'].includes(lowerText)) {
+  // 3. คำสั่งดูประวัติการให้อาหาร
+  const historyKeywords = ['ประวัติ', 'ดูประวัติ', 'ประวัติการให้อาหาร'];
+  if (historyKeywords.includes(lowerText)) {
     if (feedHistory.length === 0) {
       return lineClient.replyMessage(event.replyToken, { type: 'text', text: '📜 ยังไม่มีประวัติการให้อาหารครับ' });
     }
@@ -394,15 +416,32 @@ async function handleEvent(event) {
     feedHistory.slice(0, 10).forEach((item, idx) => {
       replyMsg += `${idx + 1}. [${item.source}] ${item.time}\n`;
     });
+
     return lineClient.replyMessage(event.replyToken, { type: 'text', text: replyMsg.trim() });
   }
 
+  // 4. กรณีผู้ใช้พิมพ์คำสั่งอื่นๆ ที่ระบบไม่รู้จัก -> ส่งเมนูความช่วยเหลือพร้อมปุ่มกด Quick Reply
   return lineClient.replyMessage(event.replyToken, {
     type: 'text',
-    text: '📌 คำสั่งที่ใช้นี้ได้:\n- พิมพ์ "ให้", "ปล่อย", "ให้อาหาร"\n- พิมพ์ "ดูตาราง"\n- พิมพ์ "ประวัติ"'
+    text: '📌 กรุณาเลือกคำสั่ง หรือพิมพ์คำสั่งตามนี้ครับ:\n- "ให้อาหาร"\n- "ดูตาราง"\n- "ประวัติ"',
+    quickReply: {
+      items: [
+        {
+          type: 'action',
+          action: { type: 'message', label: '🍖 สั่งให้อาหาร', text: 'ให้อาหาร' }
+        },
+        {
+          type: 'action',
+          action: { type: 'message', label: '⏰ ดูตารางเวลา', text: 'ดูตาราง' }
+        },
+        {
+          type: 'action',
+          action: { type: 'message', label: '📜 ดูประวัติ', text: 'ประวัติ' }
+        }
+      ]
+    }
   });
 }
-
 // ==================== 6. Start Server & Self-Ping ====================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
