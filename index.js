@@ -1,143 +1,3 @@
-const express = require('express');
-const line = require('@line/bot-sdk');
-const mqtt = require('mqtt');
-const https = require('https');
-
-// ==================== 1. ตั้งค่า LINE Client ====================
-const lineConfig = {
-  channelAccessToken: 'T2PczsnGdCNLy61ozmQfmvdCWCajw1Xske+SeH914xIeObVqoMFMhgijlDvElZ5ROglND53ixoYcPY0dxqe8R49/eRFNYK7P1Kuvg6BoCbY5MgcvtyZaV8oDxiZaKfk4k67ZexyrOAlQ7tbooE9Q4QdB04t89/1O/w1cDnyilFU=',
-  channelSecret: '5b860a740ca5d2c267455fd8f198f01c'
-};
-
-const lineClient = new line.Client(lineConfig);
-
-// ==================== 2. ตั้งค่า MQTT Broker ====================
-const MQTT_BROKER = 'mqtt://broker.hivemq.com:1883';
-const MQTT_TOPIC  = 'petfeeder/command';
-const mqttClient = mqtt.connect(MQTT_BROKER);
-
-const FEEDING_DURATION_MS = 100; 
-
-mqttClient.on('connect', () => {
-  console.log('✅ Connected to HiveMQ Broker!');
-});
-
-mqttClient.on('error', (err) => {
-  console.error('❌ MQTT Error:', err);
-});
-
-let feedHistory = [];
-
-function triggerFeeding(source = 'Unknown') {
-  try {
-    mqttClient.publish(MQTT_TOPIC, 'ON', { qos: 0 });
-    mqttClient.publish(MQTT_TOPIC, 'ให้อาหาร', { qos: 0 }, (err) => {
-      if (err) {
-        console.error(`❌ [${source}] Failed to publish MQTT:`, err);
-      } else {
-        console.log(`🚀 [${source}] Fast Feed Triggered!`);
-        
-        setTimeout(() => {
-          mqttClient.publish(MQTT_TOPIC, 'OFF', { qos: 0 });
-          console.log(`🛑 [${source}] Motor OFF published (Duration: ${FEEDING_DURATION_MS}ms)`);
-        }, FEEDING_DURATION_MS);
-
-        const now = new Date();
-        const timeStr = now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-        
-        feedHistory.unshift({
-          time: timeStr,
-          source: source
-        });
-
-        if (feedHistory.length > 20) feedHistory.pop();
-      }
-    });
-  } catch (e) {
-    console.error('Trigger Feeding Error:', e);
-  }
-}
-
-// ==================== 3. ระบบตารางเวลา (5 ช่วงเวลา) ====================
-let schedules = [
-  { id: 1, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false },
-  { id: 2, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false },
-  { id: 3, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false },
-  { id: 4, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false },
-  { id: 5, time: '', days: ['sun','mon','tue','wed','thu','fri','sat'], enabled: false }
-];
-
-const dayThaiName = {
-  'sun': 'อา', 'mon': 'จ', 'tue': 'อ', 'wed': 'พ', 'thu': 'พฤ', 'fri': 'ศ', 'sat': 'ส'
-};
-
-const dayMap = {
-  'อา': 'sun', 'อาทิตย์': 'sun', 'sun': 'sun',
-  'จ': 'mon', 'จันทร์': 'mon', 'mon': 'mon',
-  'อ': 'tue', 'อังคาร': 'tue', 'tue': 'tue',
-  'พ': 'wed', 'พุธ': 'wed', 'wed': 'wed',
-  'พฤ': 'thu', 'พฤหัส': 'thu', 'thu': 'thu',
-  'ศ': 'fri', 'ศุกร์': 'fri', 'fri': 'fri',
-  'ส': 'sat', 'เสาร์': 'sat', 'sat': 'sat'
-};
-
-setInterval(() => {
-  try {
-    const now = new Date();
-    const options = { timeZone: 'Asia/Bangkok', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' };
-    const formatter = new Intl.DateTimeFormat('en-US', options);
-    const parts = formatter.formatToParts(now);
-
-    let currentHour = '', currentMinute = '', currentSecond = '', currentDay = '';
-    for (const part of parts) {
-      if (part.type === 'hour') currentHour = part.value;
-      if (part.type === 'minute') currentMinute = part.value;
-      if (part.type === 'second') currentSecond = part.value;
-      if (part.type === 'weekday') currentDay = part.value.toLowerCase();
-    }
-
-    if (currentSecond === '00') {
-      const currentTimeStr = `${currentHour}:${currentMinute}`;
-      schedules.forEach((sch) => {
-        if (sch.enabled && sch.time === currentTimeStr && sch.days.includes(currentDay)) {
-          triggerFeeding(`Schedule #${sch.id}`);
-        }
-      });
-    }
-  } catch (err) {
-    console.error('Schedule Timer Error:', err);
-  }
-}, 1000);
-
-// ==================== 4. Express Web Server & UI ====================
-const app = express();
-
-app.post('/webhook', line.middleware(lineConfig), (req, res) => {
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('Webhook Error:', err);
-      res.status(500).end();
-    });
-});
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.get('/api/schedules', (req, res) => res.json(schedules));
-app.post('/api/schedules', (req, res) => {
-  if (Array.isArray(req.body)) schedules = req.body;
-  res.json({ status: 'ok', schedules });
-});
-
-app.get('/api/history', (req, res) => res.json(feedHistory));
-app.post('/api/feed', (req, res) => {
-  triggerFeeding('Web App');
-  res.json({ status: 'ok', message: 'Feeding triggered!' });
-});
-
-app.get('/', (req, res) => {
-  res.send(`
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -214,8 +74,8 @@ app.get('/', (req, res) => {
 <body>
   <div class="card-main">
     <div class="clock-box">
-      <div class="clock-date" id="currentDate">--</div>
-      <div class="clock-time" id="currentTime">--:--:--</div>
+      <div class="clock-date" id="currentDate">วันกำลังโหลด...</div>
+      <div class="clock-time" id="currentTime">00:00:00</div>
     </div>
     <div class="pet-avatar">🐶</div>
     <h1 class="title">Smart Pet Feeder</h1>
@@ -243,8 +103,8 @@ app.get('/', (req, res) => {
   </div>
 
   <script>
-    // นาฬิกาแบบตรงไปตรงมา (ไม่พึ่งพาเซิร์ฟเวอร์ ดำเนินการทันที)
-    function startClock() {
+    // สคริปต์นาฬิกา แยกทำงานทันที ไม่รอ API
+    (function runClock() {
       const thaiDays = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
       const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
       
@@ -253,13 +113,14 @@ app.get('/', (req, res) => {
         const dateStr = 'วัน' + thaiDays[d.getDay()] + 'ที่ ' + d.getDate() + ' ' + thaiMonths[d.getMonth()] + ' ' + (d.getFullYear() + 543);
         const timeStr = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0') + ' น.';
         
-        document.getElementById('currentDate').innerText = dateStr;
-        document.getElementById('currentTime').innerText = timeStr;
+        const dateEl = document.getElementById('currentDate');
+        const timeEl = document.getElementById('currentTime');
+        if (dateEl) dateEl.innerText = dateStr;
+        if (timeEl) timeEl.innerText = timeStr;
       }
       update();
       setInterval(update, 1000);
-    }
-    startClock();
+    })();
 
     const daysArr = [
       { key: 'sun', label: 'อา' }, { key: 'mon', label: 'จ' }, { key: 'tue', label: 'อ' },
@@ -294,7 +155,7 @@ app.get('/', (req, res) => {
           currentSchedules = await res.json();
           renderSchedules();
         }
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error('Schedule Error:', e); }
     }
 
     function renderSchedules() {
@@ -361,146 +222,11 @@ app.get('/', (req, res) => {
             '</li>'
           ).join('');
         }
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error('History Error:', e); }
     }
 
-    // เรียกโหลดข้อมูลตาราง/ประวัติ
     loadSchedules();
     loadHistory();
   </script>
 </body>
 </html>
-  `);
-});
-
-// ==================== 5. LINE Webhook Handler ====================
-
-const quickReplyMenu = {
-  items: [
-    {
-      type: 'action',
-      action: { type: 'message', label: '🍖 สั่งให้อาหาร', text: 'ให้อาหาร' }
-    },
-    {
-      type: 'action',
-      action: { type: 'message', label: '⏰ ดูตารางเวลา', text: 'ดูตาราง' }
-    },
-    {
-      type: 'action',
-      action: { type: 'message', label: '📜 ดูประวัติ', text: 'ประวัติ' }
-    }
-  ]
-};
-
-async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return Promise.resolve(null);
-  }
-
-  const userText = event.message.text.trim();
-  const lowerText = userText.toLowerCase();
-
-  // 1. คำสั่งให้อาหาร
-  const feedKeywords = ['ให้อาหาร', 'ให้', 'ปล่อย', 'feed', 'อาหาร', 'สั่งให้อาหาร', 'จ่ายอาหาร', 'ขออาหาร'];
-  if (feedKeywords.includes(lowerText)) {
-    triggerFeeding('LINE Bot');
-
-    return lineClient.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '🐾 รับคำสั่งเรียบร้อย! กำลังจ่ายอาหารให้สัตว์เลี้ยงครับ 🍖',
-      quickReply: quickReplyMenu
-    });
-  }
-
-  // 2. ตรวจจับการสั่งตั้งเวลาแบบยืดหยุ่น (กำหนดวันได้)
-  const setTimeRegex = /(?:ตั้งเวลา|เวลา)\s*([0-2]?\d[:.]\d{2})(.*)/i;
-  const match = userText.match(setTimeRegex);
-  if (match) {
-    let formattedTime = match[1].replace('.', ':');
-    const [h, m] = formattedTime.split(':');
-    formattedTime = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
-
-    const rawDaysStr = match[2].trim();
-    let selectedDays = [];
-
-    if (rawDaysStr) {
-      const words = rawDaysStr.split(/[\s,]+/);
-      words.forEach(w => {
-        const cleanWord = w.trim().toLowerCase();
-        if (dayMap[cleanWord]) {
-          if (!selectedDays.includes(dayMap[cleanWord])) {
-            selectedDays.push(dayMap[cleanWord]);
-          }
-        }
-      });
-    }
-
-    if (selectedDays.length === 0) {
-      selectedDays = ['sun','mon','tue','wed','thu','fri','sat'];
-    }
-
-    schedules[0].time = formattedTime;
-    schedules[0].days = selectedDays;
-    schedules[0].enabled = true;
-
-    const daysTextThai = selectedDays.map(d => dayThaiName[d]).join(', ');
-
-    return lineClient.replyMessage(event.replyToken, {
-      type: 'text',
-      text: `⏰ บันทึกการตั้งเวลาสำเร็จ!\n\n- เวลา: ${formattedTime} น.\n- วันที่ทำงาน: ${daysTextThai}\n- สถานะ: 🟢 เปิดใช้งาน (ช่วงที่ 1)`,
-      quickReply: quickReplyMenu
-    });
-  }
-
-  // 3. คำสั่งเช็คตารางเวลา
-  const scheduleKeywords = ['ดูตาราง', 'เช็คเวลา', 'ตารางเวลา', 'ตาราง'];
-  if (scheduleKeywords.includes(lowerText)) {
-    let replyMsg = '⏰ ตารางเวลาให้อาหารปัจจุบัน:\n';
-    schedules.forEach(s => {
-      const statusStr = s.enabled ? '🟢 เปิด' : '🔴 ปิด';
-      const daysStr = s.days.length > 0 ? s.days.map(d => dayThaiName[d]).join(', ') : 'ไม่ได้เลือกวัน';
-      replyMsg += `\nช่วงที่ ${s.id}: ${s.time || '--:--'} น. [${statusStr}]\nวัน: ${daysStr}\n`;
-    });
-
-    return lineClient.replyMessage(event.replyToken, { 
-      type: 'text', 
-      text: replyMsg.trim(),
-      quickReply: quickReplyMenu
-    });
-  }
-
-  // 4. คำสั่งดูประวัติการให้อาหาร
-  const historyKeywords = ['ประวัติ', 'ดูประวัติ', 'ประวัติการให้อาหาร'];
-  if (historyKeywords.includes(lowerText)) {
-    if (feedHistory.length === 0) {
-      return lineClient.replyMessage(event.replyToken, { 
-        type: 'text', 
-        text: '📜 ยังไม่มีประวัติการให้อาหารครับ',
-        quickReply: quickReplyMenu 
-      });
-    }
-    let replyMsg = '📜 ประวัติการให้อาหารย้อนหลัง:\n\n';
-    feedHistory.slice(0, 10).forEach((item, idx) => {
-      replyMsg += `${idx + 1}. [${item.source}] ${item.time}\n`;
-    });
-
-    return lineClient.replyMessage(event.replyToken, { 
-      type: 'text', 
-      text: replyMsg.trim(),
-      quickReply: quickReplyMenu 
-    });
-  }
-
-  // 5. คำสั่งอื่นๆ ที่ไม่รู้จัก
-  return lineClient.replyMessage(event.replyToken, {
-    type: 'text',
-    text: '📌 ตัวอย่างการสั่งตั้งเวลาผ่านแชท:\n• "ตั้งเวลา 08:30" (ทุกวัน)\n• "ตั้งเวลา 08:30 จ พ ศ" (เฉพาะวัน)\n• "ตั้งเวลา 18:00 ส อา" (เสาร์-อาทิตย์)',
-    quickReply: quickReplyMenu
-  });
-}
-
-// ==================== 6. Start Server ====================
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
