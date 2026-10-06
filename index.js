@@ -30,16 +30,17 @@ mqttClient.on('error', (err) => {
 // Array บันทึกประวัติการให้อาหาร (ย้อนหลังสูงสุด 20 รายการ)
 let feedHistory = [];
 
-// ฟังก์ชันสั่งจ่ายอาหาร แบบควบคุมเวลาการหมุน
+// ฟังก์ชันสั่งจ่ายอาหาร
 function triggerFeeding(source = 'Unknown') {
-  // 1. ส่งคำสั่งเปิดมอเตอร์ (ON)
-  mqttClient.publish(MQTT_TOPIC, 'ON', { qos: 0 }, (err) => {
+  // ส่งคำสั่งให้อาหาร (ส่งคำว่า ON และ ให้อาหาร ไปพร้อมกันเพื่อให้ ESP32 รับรู้ชัวร์ๆ)
+  mqttClient.publish(MQTT_TOPIC, 'ON', { qos: 0 });
+  mqttClient.publish(MQTT_TOPIC, 'ให้อาหาร', { qos: 0 }, (err) => {
     if (err) {
       console.error(`❌ [${source}] Failed to publish MQTT:`, err);
     } else {
-      console.log(`🚀 [${source}] Motor ON published to [${MQTT_TOPIC}]`);
+      console.log(`🚀 [${source}] Trigger feeding published to [${MQTT_TOPIC}]`);
       
-      // 2. หน่วงเวลาตามที่ตั้งไว้ แล้วส่งคำสั่งปิดมอเตอร์ (OFF)
+      // สั่งปิดมอเตอร์หลังจากผ่านไปตามเวลาที่ตั้งไว้
       setTimeout(() => {
         mqttClient.publish(MQTT_TOPIC, 'OFF', { qos: 0 });
         console.log(`🛑 [${source}] Motor OFF published (Duration: ${FEEDING_DURATION_MS}ms)`);
@@ -131,7 +132,7 @@ app.post('/api/feed', (req, res) => {
   res.json({ status: 'ok', message: 'Feeding triggered!' });
 });
 
-// หน้า UI โทนสีม่วงไล่ระดับตามแบบในรูป
+// หน้า UI โทนสีม่วงไล่ระดับ
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -152,8 +153,6 @@ app.get('/', (req, res) => {
       flex-direction: column;
       align-items: center;
     }
-    
-    /* Main Control Card */
     .card-main {
       background: #ffffff;
       border-radius: 24px;
@@ -164,7 +163,6 @@ app.get('/', (req, res) => {
       text-align: center;
       margin-bottom: 25px;
     }
-
     .pet-avatar {
       width: 65px;
       height: 65px;
@@ -176,10 +174,8 @@ app.get('/', (req, res) => {
       font-size: 32px;
       margin: 0 auto 15px auto;
     }
-
     .title { font-size: 22px; font-weight: 600; color: #2d3748; margin: 0 0 5px 0; }
     .subtitle { font-size: 13px; color: #718096; margin: 0 0 25px 0; }
-
     .btn-feed {
       width: 100%;
       background: linear-gradient(135deg, #2af598 0%, #009efd 100%);
@@ -194,7 +190,6 @@ app.get('/', (req, res) => {
       transition: all 0.2s ease;
     }
     .btn-feed:active { transform: scale(0.97); }
-
     .status-msg {
       margin-top: 20px;
       font-size: 14px;
@@ -206,8 +201,6 @@ app.get('/', (req, res) => {
       justify-content: center;
       gap: 5px;
     }
-
-    /* Sub Sections Card */
     .section-card {
       background: rgba(255, 255, 255, 0.95);
       backdrop-filter: blur(10px);
@@ -218,7 +211,6 @@ app.get('/', (req, res) => {
       box-shadow: 0 10px 30px rgba(0,0,0,0.1);
       margin-bottom: 20px;
     }
-
     .sec-title {
       font-size: 16px;
       font-weight: 600;
@@ -228,7 +220,6 @@ app.get('/', (req, res) => {
       justify-content: space-between;
       align-items: center;
     }
-
     .save-btn {
       background: #667eea;
       color: white;
@@ -239,8 +230,6 @@ app.get('/', (req, res) => {
       cursor: pointer;
       font-weight: 500;
     }
-
-    /* Schedules */
     .sched-item {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
@@ -253,34 +242,26 @@ app.get('/', (req, res) => {
     .day-btns { display: flex; gap: 3px; justify-content: space-between; }
     .day-b { flex: 1; border: 1px solid #cbd5e0; background: white; border-radius: 6px; padding: 4px 0; font-size: 11px; cursor: pointer; text-align: center; }
     .day-b.active { background: #667eea; color: white; border-color: #667eea; }
-
-    /* Switch toggle */
     .switch { position: relative; display: inline-block; width: 38px; height: 20px; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .3s; border-radius: 20px; }
     .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
     input:checked + .slider { background-color: #38a169; }
     input:checked + .slider:before { transform: translateX(18px); }
-
-    /* History List */
     .hist-list { list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto; }
     .hist-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #e2e8f0; font-size: 13px; color: #4a5568; }
     .hist-badge { background: #e2e8f0; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; color: #4a5568; }
   </style>
 </head>
 <body>
-
-  <!-- การ์ดหลักสั่งงาน -->
   <div class="card-main">
     <div class="pet-avatar">🐶</div>
     <h1 class="title">Smart Pet Feeder</h1>
     <p class="subtitle">ระบบสั่งจ่ายอาหารสัตว์เลี้ยงอัจฉริยะ</p>
-    
     <button class="btn-feed" onclick="feedNow()">🍖 สั่งให้อาหารทันที</button>
     <div class="status-msg" id="statusMsg"></div>
   </div>
 
-  <!-- การ์ดตั้งเวลา 5 ช่วง -->
   <div class="section-card">
     <div class="sec-title">
       <span>⏰ ตั้งเวลาให้อาหาร (5 ช่วงเวลา)</span>
@@ -289,7 +270,6 @@ app.get('/', (req, res) => {
     <div id="scheduleContainer"></div>
   </div>
 
-  <!-- การ์ดประวัติการให้อาหาร -->
   <div class="section-card">
     <div class="sec-title">
       <span>📜 ประวัติการให้อาหารล่าสุด</span>
@@ -305,21 +285,16 @@ app.get('/', (req, res) => {
       { key: 'sun', label: 'อา' }, { key: 'mon', label: 'จ' }, { key: 'tue', label: 'อ' },
       { key: 'wed', label: 'พ' }, { key: 'thu', label: 'พฤ' }, { key: 'fri', label: 'ศ' }, { key: 'sat', label: 'ส' }
     ];
-
     let currentSchedules = [];
 
-    // สั่งให้อาหารทันที
     async function feedNow() {
       const msg = document.getElementById('statusMsg');
       msg.style.color = '#3182ce';
       msg.innerHTML = '⏳ กำลังส่งสัญญาณ...';
-
       await fetch('/api/feed', { method: 'POST' });
-
       msg.style.color = '#38a169';
       msg.innerHTML = '✅ จ่ายอาหารสำเร็จเรียบร้อย!';
       loadHistory();
-
       setTimeout(() => { msg.innerHTML = ''; }, 4000);
     }
 
@@ -332,7 +307,6 @@ app.get('/', (req, res) => {
     function renderSchedules() {
       const container = document.getElementById('scheduleContainer');
       container.innerHTML = '';
-
       currentSchedules.forEach((sch, idx) => {
         let daysHtml = daysArr.map(d => {
           const active = sch.days.includes(d.key) ? 'active' : '';
@@ -378,12 +352,10 @@ app.get('/', (req, res) => {
       const res = await fetch('/api/history');
       const data = await res.json();
       const list = document.getElementById('historyList');
-
       if (data.length === 0) {
         list.innerHTML = '<li style="text-align:center; color:#a0aec0; padding:10px;">ยังไม่มีประวัติ</li>';
         return;
       }
-
       list.innerHTML = data.map(item => \`
         <li class="hist-item">
           <span><span class="hist-badge">\${item.source}</span> \${item.time}</span>
