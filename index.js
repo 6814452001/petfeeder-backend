@@ -10,25 +10,27 @@ const lineConfig = {
 
 const lineClient = new line.Client(lineConfig);
 
-// ⚠️ ใส่ LINE User ID หรือ Group ID ที่ต้องการให้ส่งแจ้งเตือนไปหาที่นี่
-// (หากจำไม่ได้ ให้ลองทัก LINE Bot แล้วดูใน Log ของ Render จะเห็น User ID ครับ)
-let targetUserId = ''; 
+// ใช้ Set ในการเก็บ User ID / Group ID ของทุกคนที่ทักเข้ามา เพื่อป้องกัน ID ซ้ำ
+let targetTargets = new Set(); 
 
-// ฟังก์ชันส่งแจ้งเตือนเข้า LINE (Push Notification)
+// ฟังก์ชันส่งแจ้งเตือนเข้า LINE ถึงทุกคน / ทุกกลุ่ม (Multi-user Push Notification)
 async function sendLineNotification(message) {
-  if (!targetUserId) {
-    console.log('⚠️ ไม่พบ targetUserId: ข้ามการส่ง LINE Notification');
+  if (targetTargets.size === 0) {
+    console.log('⚠️ ไม่พบ User ID / Group ID สำหรับส่ง LINE Notification');
     return;
   }
-  try {
-    await lineClient.pushMessage(targetUserId, {
-      type: 'text',
-      text: message,
-      quickReply: quickReplyMenu
-    });
-    console.log(`📲 [LINE Push] ส่งแจ้งเตือนสำเร็จ: "${message}"`);
-  } catch (err) {
-    console.error('❌ [LINE Push Error]:', err.originalError ? err.originalError.response.data : err);
+
+  for (const targetId of targetTargets) {
+    try {
+      await lineClient.pushMessage(targetId, {
+        type: 'text',
+        text: message,
+        quickReply: quickReplyMenu
+      });
+      console.log(`📲 [LINE Push] ส่งแจ้งเตือนหา ${targetId} สำเร็จ`);
+    } catch (err) {
+      console.error(`❌ [LINE Push Error] ส่งหา ${targetId} ไม่สำเร็จ:`, err.originalError ? err.originalError.response.data : err);
+    }
   }
 }
 
@@ -73,7 +75,7 @@ function triggerFeeding(source = 'Unknown') {
 
         if (feedHistory.length > 20) feedHistory.pop();
 
-        // 🔔 แจ้งเตือนเข้า LINE เมื่อสั่งอาหารจากเว็บ หรือจากระบบตั้งเวลา (Schedule)
+        // 🔔 แจ้งเตือนเข้า LINE ทุกคน เมื่อสั่งอาหารจากเว็บ หรือจากระบบตั้งเวลา (Schedule)
         if (source !== 'LINE Bot') {
           sendLineNotification(`🔔 [แจ้งเตือนให้อาหาร]\nสั่งจ่ายอาหารสำเร็จเรียบร้อยแล้ว!\n📌 ที่มา: ${source}\n🕒 เวลา: ${timeStr}`);
         }
@@ -405,10 +407,15 @@ const quickReplyMenu = {
 };
 
 async function handleEvent(event) {
-  // บันทึก User ID อัตโนมัติเมื่อผู้ใช้ทักแชทเข้ามาหา Bot
-  if (event.source && event.source.userId) {
-    targetUserId = event.source.userId;
-    console.log('📌 บันทึก Target LINE User ID:', targetUserId);
+  // บันทึก ID ของทุกคน หรือ กลุ่ม LINE ที่ทักเข้ามา
+  if (event.source) {
+    if (event.source.groupId) {
+      targetTargets.add(event.source.groupId);
+      console.log('📌 บันทึก LINE Group ID:', event.source.groupId);
+    } else if (event.source.userId) {
+      targetTargets.add(event.source.userId);
+      console.log('📌 บันทึก LINE User ID:', event.source.userId);
+    }
   }
 
   if (event.type !== 'message' || event.message.type !== 'text') {
