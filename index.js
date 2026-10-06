@@ -173,90 +173,28 @@ app.get('/', (req, res) => {
       padding: 10px;
       margin-bottom: 15px;
     }
-    .clock-date {
-      font-size: 13px;
-      font-weight: 500;
-      color: #4a5568;
-    }
-    .clock-time {
-      font-size: 26px;
-      font-weight: 700;
-      color: #2b6cb0;
-      letter-spacing: 1px;
-    }
+    .clock-date { font-size: 13px; font-weight: 500; color: #4a5568; }
+    .clock-time { font-size: 26px; font-weight: 700; color: #2b6cb0; letter-spacing: 1px; }
     .pet-avatar {
-      width: 60px;
-      height: 60px;
-      background: #fdf2f2;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 30px;
-      margin: 0 auto 10px auto;
+      width: 60px; height: 60px; background: #fdf2f2; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 10px auto;
     }
     .title { font-size: 20px; font-weight: 600; color: #2d3748; margin: 0 0 5px 0; }
     .subtitle { font-size: 12px; color: #718096; margin: 0 0 18px 0; }
     .btn-feed {
-      width: 100%;
-      background: linear-gradient(135deg, #2af598 0%, #009efd 100%);
-      color: white;
-      border: none;
-      padding: 14px;
-      font-size: 16px;
-      font-weight: 600;
-      border-radius: 14px;
-      cursor: pointer;
-      box-shadow: 0 8px 20px rgba(42, 245, 152, 0.35);
-      transition: all 0.2s ease;
+      width: 100%; background: linear-gradient(135deg, #2af598 0%, #009efd 100%);
+      color: white; border: none; padding: 14px; font-size: 16px; font-weight: 600;
+      border-radius: 14px; cursor: pointer; box-shadow: 0 8px 20px rgba(42, 245, 152, 0.35);
     }
-    .btn-feed:active { transform: scale(0.97); }
-    .status-msg {
-      margin-top: 12px;
-      font-size: 13px;
-      color: #38a169;
-      font-weight: 500;
-      min-height: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
+    .status-msg { margin-top: 12px; font-size: 13px; color: #38a169; font-weight: 500; min-height: 20px; display: flex; align-items: center; justify-content: center; }
     .section-card {
-      background: rgba(255, 255, 255, 0.95);
-      backdrop-filter: blur(10px);
-      border-radius: 20px;
-      padding: 20px;
-      width: 100%;
-      max-width: 420px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-      margin-bottom: 20px;
+      background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+      border-radius: 20px; padding: 20px; width: 100%; max-width: 420px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.1); margin-bottom: 20px;
     }
-    .sec-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: #2d3748;
-      margin-bottom: 12px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .save-btn {
-      background: #667eea;
-      color: white;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      cursor: pointer;
-      font-weight: 500;
-    }
-    .sched-item {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 10px;
-      margin-bottom: 8px;
-    }
+    .sec-title { font-size: 15px; font-weight: 600; color: #2d3748; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .save-btn { background: #667eea; color: white; border: none; padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; font-weight: 500; }
+    .sched-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; margin-bottom: 8px; }
     .sched-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .time-input { border: 1px solid #cbd5e0; border-radius: 6px; padding: 3px 6px; font-size: 13px; }
     .day-btns { display: flex; gap: 3px; justify-content: space-between; }
@@ -276,8 +214,8 @@ app.get('/', (req, res) => {
 <body>
   <div class="card-main">
     <div class="clock-box">
-      <div class="clock-date" id="currentDate">วัน... 00/00/0000</div>
-      <div class="clock-time" id="currentTime">00:00:00</div>
+      <div class="clock-date" id="currentDate">--</div>
+      <div class="clock-time" id="currentTime">--:--:--</div>
     </div>
     <div class="pet-avatar">🐶</div>
     <h1 class="title">Smart Pet Feeder</h1>
@@ -305,65 +243,58 @@ app.get('/', (req, res) => {
   </div>
 
   <script>
+    // นาฬิกาแบบตรงไปตรงมา (ไม่พึ่งพาเซิร์ฟเวอร์ ดำเนินการทันที)
+    function startClock() {
+      const thaiDays = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+      const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+      
+      function update() {
+        const d = new Date();
+        const dateStr = 'วัน' + thaiDays[d.getDay()] + 'ที่ ' + d.getDate() + ' ' + thaiMonths[d.getMonth()] + ' ' + (d.getFullYear() + 543);
+        const timeStr = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ':' + String(d.getSeconds()).padStart(2, '0') + ' น.';
+        
+        document.getElementById('currentDate').innerText = dateStr;
+        document.getElementById('currentTime').innerText = timeStr;
+      }
+      update();
+      setInterval(update, 1000);
+    }
+    startClock();
+
     const daysArr = [
       { key: 'sun', label: 'อา' }, { key: 'mon', label: 'จ' }, { key: 'tue', label: 'อ' },
       { key: 'wed', label: 'พ' }, { key: 'thu', label: 'พฤ' }, { key: 'fri', label: 'ศ' }, { key: 'sat', label: 'ส' }
     ];
     let currentSchedules = [];
 
-    const thaiDays = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
-    const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-
-    function updateClock() {
-      try {
-        const d = new Date();
-        const dayName = thaiDays[d.getDay()];
-        const dateNum = d.getDate();
-        const monthName = thaiMonths[d.getMonth()];
-        const yearTH = d.getFullYear() + 543;
-
-        const hh = String(d.getHours()).padStart(2, '0');
-        const mm = String(d.getMinutes()).padStart(2, '0');
-        const ss = String(d.getSeconds()).padStart(2, '0');
-
-        const dateEl = document.getElementById('currentDate');
-        const timeEl = document.getElementById('currentTime');
-        if (dateEl) dateEl.innerText = 'วัน' + dayName + 'ที่ ' + dateNum + ' ' + monthName + ' ' + yearTH;
-        if (timeEl) timeEl.innerText = hh + ':' + mm + ':' + ss + ' น.';
-      } catch (e) {
-        console.error('Clock error:', e);
-      }
-    }
-
     async function feedNow() {
       const btn = document.getElementById('feedBtn');
       const msg = document.getElementById('statusMsg');
       btn.disabled = true;
       msg.style.color = '#3182ce';
-      msg.innerHTML = '⏳ กำลังส่งสัญญาณ...';
+      msg.innerText = '⏳ กำลังส่งสัญญาณ...';
       try {
         await fetch('/api/feed', { method: 'POST' });
         msg.style.color = '#38a169';
-        msg.innerHTML = '✅ จ่ายอาหารสำเร็จเรียบร้อย!';
+        msg.innerText = '✅ จ่ายอาหารสำเร็จเรียบร้อย!';
         loadHistory();
       } catch (e) {
         msg.style.color = '#e53e3e';
-        msg.innerHTML = '❌ เกิดข้อผิดพลาด';
+        msg.innerText = '❌ เกิดข้อผิดพลาด';
       } finally {
         btn.disabled = false;
-        setTimeout(() => { msg.innerHTML = ''; }, 4000);
+        setTimeout(() => { msg.innerText = ''; }, 4000);
       }
     }
 
     async function loadSchedules() {
       try {
         const res = await fetch('/api/schedules');
-        if (!res.ok) throw new Error('Network status: ' + res.status);
-        currentSchedules = await res.json();
-        renderSchedules();
-      } catch (e) { 
-        console.error('Failed to load schedules:', e); 
-      }
+        if (res.ok) {
+          currentSchedules = await res.json();
+          renderSchedules();
+        }
+      } catch (e) { console.error(e); }
     }
 
     function renderSchedules() {
@@ -415,31 +346,27 @@ app.get('/', (req, res) => {
     async function loadHistory() {
       try {
         const res = await fetch('/api/history');
-        if (!res.ok) throw new Error('Network status: ' + res.status);
-        const data = await res.json();
-        const list = document.getElementById('historyList');
-        if (!list) return;
-        if (data.length === 0) {
-          list.innerHTML = '<li style="text-align:center; color:#a0aec0; padding:10px;">ยังไม่มีประวัติ</li>';
-          return;
+        if (res.ok) {
+          const data = await res.json();
+          const list = document.getElementById('historyList');
+          if (!list) return;
+          if (data.length === 0) {
+            list.innerHTML = '<li style="text-align:center; color:#a0aec0; padding:10px;">ยังไม่มีประวัติ</li>';
+            return;
+          }
+          list.innerHTML = data.map(item => 
+            '<li class="hist-item">' +
+              '<span><span class="hist-badge">' + item.source + '</span> ' + item.time + '</span>' +
+              '<span style="color:#38a169;">✓</span>' +
+            '</li>'
+          ).join('');
         }
-        list.innerHTML = data.map(item => 
-          '<li class="hist-item">' +
-            '<span><span class="hist-badge">' + item.source + '</span> ' + item.time + '</span>' +
-            '<span style="color:#38a169;">✓</span>' +
-          '</li>'
-        ).join('');
-      } catch (e) { 
-        console.error('Failed to load history:', e); 
-      }
+      } catch (e) { console.error(e); }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      updateClock();
-      setInterval(updateClock, 1000);
-      loadSchedules();
-      loadHistory();
-    });
+    // เรียกโหลดข้อมูลตาราง/ประวัติ
+    loadSchedules();
+    loadHistory();
   </script>
 </body>
 </html>
