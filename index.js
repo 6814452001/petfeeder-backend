@@ -29,29 +29,33 @@ mqttClient.on('error', (err) => {
 let feedHistory = [];
 
 function triggerFeeding(source = 'Unknown') {
-  mqttClient.publish(MQTT_TOPIC, 'ON', { qos: 0 });
-  mqttClient.publish(MQTT_TOPIC, 'ให้อาหาร', { qos: 0 }, (err) => {
-    if (err) {
-      console.error(`❌ [${source}] Failed to publish MQTT:`, err);
-    } else {
-      console.log(`🚀 [${source}] Fast Feed Triggered!`);
-      
-      setTimeout(() => {
-        mqttClient.publish(MQTT_TOPIC, 'OFF', { qos: 0 });
-        console.log(`🛑 [${source}] Motor OFF published (Duration: ${FEEDING_DURATION_MS}ms)`);
-      }, FEEDING_DURATION_MS);
+  try {
+    mqttClient.publish(MQTT_TOPIC, 'ON', { qos: 0 });
+    mqttClient.publish(MQTT_TOPIC, 'ให้อาหาร', { qos: 0 }, (err) => {
+      if (err) {
+        console.error(`❌ [${source}] Failed to publish MQTT:`, err);
+      } else {
+        console.log(`🚀 [${source}] Fast Feed Triggered!`);
+        
+        setTimeout(() => {
+          mqttClient.publish(MQTT_TOPIC, 'OFF', { qos: 0 });
+          console.log(`🛑 [${source}] Motor OFF published (Duration: ${FEEDING_DURATION_MS}ms)`);
+        }, FEEDING_DURATION_MS);
 
-      const now = new Date();
-      const timeStr = now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
-      
-      feedHistory.unshift({
-        time: timeStr,
-        source: source
-      });
+        const now = new Date();
+        const timeStr = now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
+        
+        feedHistory.unshift({
+          time: timeStr,
+          source: source
+        });
 
-      if (feedHistory.length > 20) feedHistory.pop();
-    }
-  });
+        if (feedHistory.length > 20) feedHistory.pop();
+      }
+    });
+  } catch (e) {
+    console.error('Trigger Feeding Error:', e);
+  }
 }
 
 // ==================== 3. ระบบตารางเวลา (5 ช่วงเวลา) ====================
@@ -78,26 +82,30 @@ const dayMap = {
 };
 
 setInterval(() => {
-  const now = new Date();
-  const options = { timeZone: 'Asia/Bangkok', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' };
-  const formatter = new Intl.DateTimeFormat('en-US', options);
-  const parts = formatter.formatToParts(now);
+  try {
+    const now = new Date();
+    const options = { timeZone: 'Asia/Bangkok', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' };
+    const formatter = new Intl.DateTimeFormat('en-US', options);
+    const parts = formatter.formatToParts(now);
 
-  let currentHour = '', currentMinute = '', currentSecond = '', currentDay = '';
-  for (const part of parts) {
-    if (part.type === 'hour') currentHour = part.value;
-    if (part.type === 'minute') currentMinute = part.value;
-    if (part.type === 'second') currentSecond = part.value;
-    if (part.type === 'weekday') currentDay = part.value.toLowerCase();
-  }
+    let currentHour = '', currentMinute = '', currentSecond = '', currentDay = '';
+    for (const part of parts) {
+      if (part.type === 'hour') currentHour = part.value;
+      if (part.type === 'minute') currentMinute = part.value;
+      if (part.type === 'second') currentSecond = part.value;
+      if (part.type === 'weekday') currentDay = part.value.toLowerCase();
+    }
 
-  if (currentSecond === '00') {
-    const currentTimeStr = `${currentHour}:${currentMinute}`;
-    schedules.forEach((sch) => {
-      if (sch.enabled && sch.time === currentTimeStr && sch.days.includes(currentDay)) {
-        triggerFeeding(`Schedule #${sch.id}`);
-      }
-    });
+    if (currentSecond === '00') {
+      const currentTimeStr = `${currentHour}:${currentMinute}`;
+      schedules.forEach((sch) => {
+        if (sch.enabled && sch.time === currentTimeStr && sch.days.includes(currentDay)) {
+          triggerFeeding(`Schedule #${sch.id}`);
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Schedule Timer Error:', err);
   }
 }, 1000);
 
@@ -108,7 +116,7 @@ app.post('/webhook', line.middleware(lineConfig), (req, res) => {
   Promise.all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
-      console.error(err);
+      console.error('Webhook Error:', err);
       res.status(500).end();
     });
 });
@@ -268,8 +276,8 @@ app.get('/', (req, res) => {
 <body>
   <div class="card-main">
     <div class="clock-box">
-      <div class="clock-date" id="currentDate">กำลังโหลดวันเวลา...</div>
-      <div class="clock-time" id="currentTime">--:--:--</div>
+      <div class="clock-date" id="currentDate">วัน... 00/00/0000</div>
+      <div class="clock-time" id="currentTime">00:00:00</div>
     </div>
     <div class="pet-avatar">🐶</div>
     <h1 class="title">Smart Pet Feeder</h1>
@@ -303,27 +311,29 @@ app.get('/', (req, res) => {
     ];
     let currentSchedules = [];
 
-    // นาฬิกาแบบเบาแรง (ไม่ทำให้เบราว์เซอร์ค้าง)
     const thaiDays = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
     const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 
     function updateClock() {
-      const d = new Date();
-      const dayName = thaiDays[d.getDay()];
-      const dateNum = d.getDate();
-      const monthName = thaiMonths[d.getMonth()];
-      const yearTH = d.getFullYear() + 543;
+      try {
+        const d = new Date();
+        const dayName = thaiDays[d.getDay()];
+        const dateNum = d.getDate();
+        const monthName = thaiMonths[d.getMonth()];
+        const yearTH = d.getFullYear() + 543;
 
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mm = String(d.getMinutes()).padStart(2, '0');
-      const ss = String(d.getSeconds()).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
 
-      document.getElementById('currentDate').innerText = 'วัน' + dayName + 'ที่ ' + dateNum + ' ' + monthName + ' ' + yearTH;
-      document.getElementById('currentTime').innerText = hh + ':' + mm + ':' + ss + ' น.';
+        const dateEl = document.getElementById('currentDate');
+        const timeEl = document.getElementById('currentTime');
+        if (dateEl) dateEl.innerText = 'วัน' + dayName + 'ที่ ' + dateNum + ' ' + monthName + ' ' + yearTH;
+        if (timeEl) timeEl.innerText = hh + ':' + mm + ':' + ss + ' น.';
+      } catch (e) {
+        console.error('Clock error:', e);
+      }
     }
-
-    setInterval(updateClock, 1000);
-    updateClock();
 
     async function feedNow() {
       const btn = document.getElementById('feedBtn');
@@ -348,13 +358,17 @@ app.get('/', (req, res) => {
     async function loadSchedules() {
       try {
         const res = await fetch('/api/schedules');
+        if (!res.ok) throw new Error('Network status: ' + res.status);
         currentSchedules = await res.json();
         renderSchedules();
-      } catch (e) { console.error(e); }
+      } catch (e) { 
+        console.error('Failed to load schedules:', e); 
+      }
     }
 
     function renderSchedules() {
       const container = document.getElementById('scheduleContainer');
+      if (!container) return;
       let html = '';
       currentSchedules.forEach((sch, idx) => {
         let daysHtml = daysArr.map(d => {
@@ -401,8 +415,10 @@ app.get('/', (req, res) => {
     async function loadHistory() {
       try {
         const res = await fetch('/api/history');
+        if (!res.ok) throw new Error('Network status: ' + res.status);
         const data = await res.json();
         const list = document.getElementById('historyList');
+        if (!list) return;
         if (data.length === 0) {
           list.innerHTML = '<li style="text-align:center; color:#a0aec0; padding:10px;">ยังไม่มีประวัติ</li>';
           return;
@@ -413,11 +429,17 @@ app.get('/', (req, res) => {
             '<span style="color:#38a169;">✓</span>' +
           '</li>'
         ).join('');
-      } catch (e) { console.error(e); }
+      } catch (e) { 
+        console.error('Failed to load history:', e); 
+      }
     }
 
-    loadSchedules();
-    loadHistory();
+    document.addEventListener('DOMContentLoaded', () => {
+      updateClock();
+      setInterval(updateClock, 1000);
+      loadSchedules();
+      loadHistory();
+    });
   </script>
 </body>
 </html>
@@ -550,16 +572,8 @@ async function handleEvent(event) {
   });
 }
 
-// ==================== 6. Start Server & Self-Ping ====================
+// ==================== 6. Start Server ====================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  
-  setInterval(() => {
-    https.get('https://petfeeder-backend-ylcj.onrender.com', (res) => {
-      console.log(`⏰ Self-ping status: ${res.statusCode}`);
-    }).on('error', (err) => {
-      console.log('⚠ Self-ping failed:', err.message);
-    });
-  }, 10 * 60 * 1000);
 });
