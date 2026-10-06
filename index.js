@@ -136,7 +136,7 @@ app.get('/', (req, res) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Smart Pet Feeder Dashboard</title>
-  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; font-family: 'Prompt', sans-serif; }
     body {
@@ -151,12 +151,30 @@ app.get('/', (req, res) => {
     .card-main {
       background: #ffffff;
       border-radius: 24px;
-      padding: 35px 30px;
+      padding: 30px 25px;
       width: 100%;
       max-width: 420px;
       box-shadow: 0 20px 40px rgba(0,0,0,0.15);
       text-align: center;
       margin-bottom: 25px;
+    }
+    .clock-box {
+      background: #f0f4ff;
+      border: 1px solid #d0dcf9;
+      border-radius: 16px;
+      padding: 12px;
+      margin-bottom: 20px;
+    }
+    .clock-date {
+      font-size: 14px;
+      font-weight: 500;
+      color: #4a5568;
+    }
+    .clock-time {
+      font-size: 28px;
+      font-weight: 700;
+      color: #2b6cb0;
+      letter-spacing: 1px;
     }
     .pet-avatar {
       width: 65px;
@@ -167,10 +185,10 @@ app.get('/', (req, res) => {
       align-items: center;
       justify-content: center;
       font-size: 32px;
-      margin: 0 auto 15px auto;
+      margin: 0 auto 12px auto;
     }
     .title { font-size: 22px; font-weight: 600; color: #2d3748; margin: 0 0 5px 0; }
-    .subtitle { font-size: 13px; color: #718096; margin: 0 0 25px 0; }
+    .subtitle { font-size: 13px; color: #718096; margin: 0 0 20px 0; }
     .btn-feed {
       width: 100%;
       background: linear-gradient(135deg, #2af598 0%, #009efd 100%);
@@ -186,7 +204,7 @@ app.get('/', (req, res) => {
     }
     .btn-feed:active { transform: scale(0.97); }
     .status-msg {
-      margin-top: 20px;
+      margin-top: 15px;
       font-size: 14px;
       color: #38a169;
       font-weight: 500;
@@ -250,6 +268,10 @@ app.get('/', (req, res) => {
 </head>
 <body>
   <div class="card-main">
+    <div class="clock-box">
+      <div class="clock-date" id="currentDate">วัน... 00/00/0000</div>
+      <div class="clock-time" id="currentTime">00:00:00</div>
+    </div>
     <div class="pet-avatar">🐶</div>
     <h1 class="title">Smart Pet Feeder</h1>
     <p class="subtitle">ระบบสั่งจ่ายอาหารสัตว์เลี้ยงอัจฉริยะ</p>
@@ -276,6 +298,17 @@ app.get('/', (req, res) => {
   </div>
 
   <script>
+    function updateClock() {
+      const now = new Date();
+      const dateOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Bangkok' };
+      const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' };
+      
+      document.getElementById('currentDate').innerText = now.toLocaleDateString('th-TH', dateOptions);
+      document.getElementById('currentTime').innerText = now.toLocaleTimeString('th-TH', timeOptions) + ' น.';
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
     const daysArr = [
       { key: 'sun', label: 'อา' }, { key: 'mon', label: 'จ' }, { key: 'tue', label: 'อ' },
       { key: 'wed', label: 'พ' }, { key: 'thu', label: 'พฤ' }, { key: 'fri', label: 'ศ' }, { key: 'sat', label: 'ส' }
@@ -405,7 +438,7 @@ async function handleEvent(event) {
     });
   }
 
-  // 2. ตรวจจับการสั่งตั้งเวลาแบบยืดหยุ่น (กำหนดวันได้ เช่น "ตั้งเวลา 08:30 จ พ ศ" หรือ "ตั้งเวลา 18:00 ส อา")
+  // 2. ตรวจจับการสั่งตั้งเวลาแบบยืดหยุ่น (กำหนดวันได้)
   const setTimeRegex = /(?:ตั้งเวลา|เวลา)\s*([0-2]?\d[:.]\d{2})(.*)/i;
   const match = userText.match(setTimeRegex);
   if (match) {
@@ -417,7 +450,6 @@ async function handleEvent(event) {
     let selectedDays = [];
 
     if (rawDaysStr) {
-      // ค้นหาวันที่ระบุในข้อความ
       const words = rawDaysStr.split(/[\s,]+/);
       words.forEach(w => {
         const cleanWord = w.trim().toLowerCase();
@@ -429,12 +461,10 @@ async function handleEvent(event) {
       });
     }
 
-    // ถ้าไม่ได้ระบุวัน ให้ถือว่าเลือก "ทุกวัน"
     if (selectedDays.length === 0) {
       selectedDays = ['sun','mon','tue','wed','thu','fri','sat'];
     }
 
-    // ตั้งเวลาลงในช่องที่ 1 และเปิดใช้งาน
     schedules[0].time = formattedTime;
     schedules[0].days = selectedDays;
     schedules[0].enabled = true;
