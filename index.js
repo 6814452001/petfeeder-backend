@@ -16,7 +16,6 @@ const MQTT_BROKER = 'mqtt://broker.hivemq.com:1883';
 const MQTT_TOPIC  = 'petfeeder/command';
 const mqttClient = mqtt.connect(MQTT_BROKER);
 
-// ปรับระยะเวลาสั่งหมุนให้เร็วขึ้น เหลือเพียง 200 มิลลิวินาที (0.2 วินาที)
 const FEEDING_DURATION_MS = 100; 
 
 mqttClient.on('connect', () => {
@@ -296,22 +295,22 @@ app.get('/', (req, res) => {
       currentSchedules.forEach((sch, idx) => {
         let daysHtml = daysArr.map(d => {
           const active = sch.days.includes(d.key) ? 'active' : '';
-          return \`<button class="day-b \${active}" onclick="toggleDay(\${idx}, '\${d.key}')">\${d.label}</button>\`;
+          return `<button class="day-b ${active}" onclick="toggleDay(${idx}, '${d.key}')">${d.label}</button>`;
         }).join('');
 
-        container.innerHTML += \`
+        container.innerHTML += `
           <div class="sched-item">
             <div class="sched-row">
-              <span style="font-weight: 500; font-size: 13px;">ช่วงที่ \${sch.id}</span>
-              <input type="time" class="time-input" value="\${sch.time}" onchange="updateTime(\${idx}, this.value)">
+              <span style="font-weight: 500; font-size: 13px;">ช่วงที่ ${sch.id}</span>
+              <input type="time" class="time-input" value="${sch.time}" onchange="updateTime(${idx}, this.value)">
               <label class="switch">
-                <input type="checkbox" \${sch.enabled ? 'checked' : ''} onchange="toggleEnable(\${idx}, this.checked)">
+                <input type="checkbox" ${sch.enabled ? 'checked' : ''} onchange="toggleEnable(${idx}, this.checked)">
                 <span class="slider"></span>
               </label>
             </div>
-            <div class="day-btns">\${daysHtml}</div>
+            <div class="day-btns">${daysHtml}</div>
           </div>
-        \`;
+        `;
       });
     }
 
@@ -342,12 +341,12 @@ app.get('/', (req, res) => {
         list.innerHTML = '<li style="text-align:center; color:#a0aec0; padding:10px;">ยังไม่มีประวัติ</li>';
         return;
       }
-      list.innerHTML = data.map(item => \`
+      list.innerHTML = data.map(item => `
         <li class="hist-item">
-          <span><span class="hist-badge">\${item.source}</span> \${item.time}</span>
+          <span><span class="hist-badge">${item.source}</span>${item.time}</span>
           <span style="color:#38a169;">✓</span>
         </li>
-      \`).join('');
+      `).join('');
     }
 
     loadSchedules();
@@ -359,9 +358,27 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ==================== 5. LINE Webhook Handler (ปรับปรุงเพิ่มคำสั่ง + ปุ่มตอบกลับ) ====================
+// ==================== 5. LINE Webhook Handler (เพิ่ม Quick Reply ทุกการตอบกลับ) ====================
+
+// สร้างปุ่มกดด่วน Quick Reply เตรียมไว้ใช้งาน
+const quickReplyMenu = {
+  items: [
+    {
+      type: 'action',
+      action: { type: 'message', label: '🍖 สั่งให้อาหาร', text: 'ให้อาหาร' }
+    },
+    {
+      type: 'action',
+      action: { type: 'message', label: '⏰ ดูตารางเวลา', text: 'ดูตาราง' }
+    },
+    {
+      type: 'action',
+      action: { type: 'message', label: '📜 ดูประวัติ', text: 'ประวัติ' }
+    }
+  ]
+};
+
 async function handleEvent(event) {
-  // รับเฉพาะข้อความประเภท Text เท่านั้น
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
   }
@@ -369,31 +386,19 @@ async function handleEvent(event) {
   const userText = event.message.text.trim();
   const lowerText = userText.toLowerCase();
 
-  // 1. คำสั่งสั่งให้อาหาร (รองรับคำอ่านภาษาไทยหลากหลายแบบ)
+  // 1. คำสั่งให้อาหาร
   const feedKeywords = ['ให้อาหาร', 'ให้', 'ปล่อย', 'feed', 'อาหาร', 'สั่งให้อาหาร', 'จ่ายอาหาร', 'ขออาหาร'];
   if (feedKeywords.includes(lowerText)) {
-    // ยิงคำสั่งเข้า MQTT ผ่านฟังก์ชัน triggerFeeding
     triggerFeeding('LINE Bot');
 
     return lineClient.replyMessage(event.replyToken, {
       type: 'text',
       text: '🐾 รับคำสั่งเรียบร้อย! กำลังจ่ายอาหารให้สัตว์เลี้ยงครับ 🍖',
-      quickReply: {
-        items: [
-          {
-            type: 'action',
-            action: { type: 'message', label: '📜 ดูประวัติ', text: 'ประวัติ' }
-          },
-          {
-            type: 'action',
-            action: { type: 'message', label: '⏰ ดูตารางเวลา', text: 'ดูตาราง' }
-          }
-        ]
-      }
+      quickReply: quickReplyMenu
     });
   }
 
-  // 2. คำสั่งเช็คตารางเวลา
+  // 2. คำสั่งเช็คตารางเวลา (เพิ่ม quickReply)
   const scheduleKeywords = ['ดูตาราง', 'เช็คเวลา', 'ตารางเวลา', 'ตาราง'];
   if (scheduleKeywords.includes(lowerText)) {
     let replyMsg = '⏰ ตารางเวลาให้อาหารปัจจุบัน:\n';
@@ -403,45 +408,43 @@ async function handleEvent(event) {
       replyMsg += `\nช่วงที่ ${s.id}: ${s.time || '--:--'} น. [${statusStr}]\nวัน: ${daysStr}\n`;
     });
 
-    return lineClient.replyMessage(event.replyToken, { type: 'text', text: replyMsg.trim() });
+    return lineClient.replyMessage(event.replyToken, { 
+      type: 'text', 
+      text: replyMsg.trim(),
+      quickReply: quickReplyMenu
+    });
   }
 
-  // 3. คำสั่งดูประวัติการให้อาหาร
+  // 3. คำสั่งดูประวัติการให้อาหาร (เพิ่ม quickReply)
   const historyKeywords = ['ประวัติ', 'ดูประวัติ', 'ประวัติการให้อาหาร'];
   if (historyKeywords.includes(lowerText)) {
     if (feedHistory.length === 0) {
-      return lineClient.replyMessage(event.replyToken, { type: 'text', text: '📜 ยังไม่มีประวัติการให้อาหารครับ' });
+      return lineClient.replyMessage(event.replyToken, { 
+        type: 'text', 
+        text: '📜 ยังไม่มีประวัติการให้อาหารครับ',
+        quickReply: quickReplyMenu 
+      });
     }
     let replyMsg = '📜 ประวัติการให้อาหารย้อนหลัง:\n\n';
     feedHistory.slice(0, 10).forEach((item, idx) => {
       replyMsg += `${idx + 1}. [${item.source}] ${item.time}\n`;
     });
 
-    return lineClient.replyMessage(event.replyToken, { type: 'text', text: replyMsg.trim() });
+    return lineClient.replyMessage(event.replyToken, { 
+      type: 'text', 
+      text: replyMsg.trim(),
+      quickReply: quickReplyMenu 
+    });
   }
 
-  // 4. กรณีผู้ใช้พิมพ์คำสั่งอื่นๆ ที่ระบบไม่รู้จัก -> ส่งเมนูความช่วยเหลือพร้อมปุ่มกด Quick Reply
+  // 4. คำสั่งอื่นๆ ที่ไม่รู้จัก
   return lineClient.replyMessage(event.replyToken, {
     type: 'text',
-    text: '📌 กรุณาเลือกคำสั่ง หรือพิมพ์คำสั่งตามนี้ครับ:\n- "ให้อาหาร"\n- "ดูตาราง"\n- "ประวัติ"',
-    quickReply: {
-      items: [
-        {
-          type: 'action',
-          action: { type: 'message', label: '🍖 สั่งให้อาหาร', text: 'ให้อาหาร' }
-        },
-        {
-          type: 'action',
-          action: { type: 'message', label: '⏰ ดูตารางเวลา', text: 'ดูตาราง' }
-        },
-        {
-          type: 'action',
-          action: { type: 'message', label: '📜 ดูประวัติ', text: 'ประวัติ' }
-        }
-      ]
-    }
+    text: '📌 เลือกกดเมนูด้านล่างนี้ได้เลยครับ:',
+    quickReply: quickReplyMenu
   });
 }
+
 // ==================== 6. Start Server & Self-Ping ====================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
