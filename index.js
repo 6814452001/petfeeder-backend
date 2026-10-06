@@ -295,22 +295,20 @@ app.get('/', (req, res) => {
       currentSchedules.forEach((sch, idx) => {
         let daysHtml = daysArr.map(d => {
           const active = sch.days.includes(d.key) ? 'active' : '';
-          return `<button class="day-b ${active}" onclick="toggleDay(${idx}, '${d.key}')">${d.label}</button>`;
+          return '<button class="day-b ' + active + '" onclick="toggleDay(' + idx + ', \'' + d.key + '\')">' + d.label + '</button>';
         }).join('');
 
-        container.innerHTML += `
-          <div class="sched-item">
-            <div class="sched-row">
-              <span style="font-weight: 500; font-size: 13px;">ช่วงที่ ${sch.id}</span>
-              <input type="time" class="time-input" value="${sch.time}" onchange="updateTime(${idx}, this.value)">
-              <label class="switch">
-                <input type="checkbox" ${sch.enabled ? 'checked' : ''} onchange="toggleEnable(${idx}, this.checked)">
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="day-btns">${daysHtml}</div>
-          </div>
-        `;
+        container.innerHTML += '<div class="sched-item">' +
+            '<div class="sched-row">' +
+              '<span style="font-weight: 500; font-size: 13px;">ช่วงที่ ' + sch.id + '</span>' +
+              '<input type="time" class="time-input" value="' + sch.time + '" onchange="updateTime(' + idx + ', this.value)">' +
+              '<label class="switch">' +
+                '<input type="checkbox" ' + (sch.enabled ? 'checked' : '') + ' onchange="toggleEnable(' + idx + ', this.checked)">' +
+                '<span class="slider"></span>' +
+              '</label>' +
+            '</div>' +
+            '<div class="day-btns">' + daysHtml + '</div>' +
+          '</div>';
       });
     }
 
@@ -341,12 +339,12 @@ app.get('/', (req, res) => {
         list.innerHTML = '<li style="text-align:center; color:#a0aec0; padding:10px;">ยังไม่มีประวัติ</li>';
         return;
       }
-      list.innerHTML = data.map(item => `
-        <li class="hist-item">
-          <span><span class="hist-badge">${item.source}</span>${item.time}</span>
-          <span style="color:#38a169;">✓</span>
-        </li>
-      `).join('');
+      list.innerHTML = data.map(item => 
+        '<li class="hist-item">' +
+          '<span><span class="hist-badge">' + item.source + '</span> ' + item.time + '</span>' +
+          '<span style="color:#38a169;">✓</span>' +
+        '</li>'
+      ).join('');
     }
 
     loadSchedules();
@@ -360,7 +358,6 @@ app.get('/', (req, res) => {
 
 // ==================== 5. LINE Webhook Handler (เพิ่ม Quick Reply ทุกการตอบกลับ) ====================
 
-// สร้างปุ่มกดด่วน Quick Reply เตรียมไว้ใช้งาน
 const quickReplyMenu = {
   items: [
     {
@@ -398,7 +395,7 @@ async function handleEvent(event) {
     });
   }
 
-  // 2. คำสั่งเช็คตารางเวลา (เพิ่ม quickReply)
+  // 2. คำสั่งเช็คตารางเวลา
   const scheduleKeywords = ['ดูตาราง', 'เช็คเวลา', 'ตารางเวลา', 'ตาราง'];
   if (scheduleKeywords.includes(lowerText)) {
     let replyMsg = '⏰ ตารางเวลาให้อาหารปัจจุบัน:\n';
@@ -415,7 +412,7 @@ async function handleEvent(event) {
     });
   }
 
-  // 3. คำสั่งดูประวัติการให้อาหาร (เพิ่ม quickReply)
+  // 3. คำสั่งดูประวัติการให้อาหาร
   const historyKeywords = ['ประวัติ', 'ดูประวัติ', 'ประวัติการให้อาหาร'];
   if (historyKeywords.includes(lowerText)) {
     if (feedHistory.length === 0) {
