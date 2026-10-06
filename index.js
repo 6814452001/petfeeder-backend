@@ -16,6 +16,9 @@ const MQTT_BROKER = 'mqtt://broker.hivemq.com:1883';
 const MQTT_TOPIC  = 'petfeeder/command';
 const mqttClient = mqtt.connect(MQTT_BROKER);
 
+// ระยะเวลาสั่งหมุนมอเตอร์ (หน่วย: มิลลิวินาที) -> 500ms = 0.5 วินาที
+const FEEDING_DURATION_MS = 500; 
+
 mqttClient.on('connect', () => {
   console.log('✅ Connected to HiveMQ Broker!');
 });
@@ -27,13 +30,22 @@ mqttClient.on('error', (err) => {
 // Array บันทึกประวัติการให้อาหาร (ย้อนหลังสูงสุด 20 รายการ)
 let feedHistory = [];
 
+// ฟังก์ชันสั่งจ่ายอาหาร แบบควบคุมเวลาการหมุน
 function triggerFeeding(source = 'Unknown') {
-  mqttClient.publish(MQTT_TOPIC, 'ให้อาหาร', { qos: 0 }, (err) => {
+  // 1. ส่งคำสั่งเปิดมอเตอร์ (ON)
+  mqttClient.publish(MQTT_TOPIC, 'ON', { qos: 0 }, (err) => {
     if (err) {
       console.error(`❌ [${source}] Failed to publish MQTT:`, err);
     } else {
-      console.log(`🚀 [${source}] Published to MQTT [${MQTT_TOPIC}]: ให้อาหาร`);
+      console.log(`🚀 [${source}] Motor ON published to [${MQTT_TOPIC}]`);
       
+      // 2. หน่วงเวลาตามที่ตั้งไว้ แล้วส่งคำสั่งปิดมอเตอร์ (OFF)
+      setTimeout(() => {
+        mqttClient.publish(MQTT_TOPIC, 'OFF', { qos: 0 });
+        console.log(`🛑 [${source}] Motor OFF published (Duration: ${FEEDING_DURATION_MS}ms)`);
+      }, FEEDING_DURATION_MS);
+
+      // บันทึกเวลาลงประวัติ
       const now = new Date();
       const timeStr = now.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' });
       
@@ -296,7 +308,7 @@ app.get('/', (req, res) => {
 
     let currentSchedules = [];
 
-    // สั่งให้อาหารทันที (กดแล้วส่งคำสั่งทันที ไม่ต้องยืนยัน)
+    // สั่งให้อาหารทันที
     async function feedNow() {
       const msg = document.getElementById('statusMsg');
       msg.style.color = '#3182ce';
