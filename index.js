@@ -67,6 +67,16 @@ const dayThaiName = {
   'sun': 'อา', 'mon': 'จ', 'tue': 'อ', 'wed': 'พ', 'thu': 'พฤ', 'fri': 'ศ', 'sat': 'ส'
 };
 
+const dayMap = {
+  'อา': 'sun', 'อาทิตย์': 'sun', 'sun': 'sun',
+  'จ': 'mon', 'จันทร์': 'mon', 'mon': 'mon',
+  'อ': 'tue', 'อังคาร': 'tue', 'tue': 'tue',
+  'พ': 'wed', 'พุธ': 'wed', 'wed': 'wed',
+  'พฤ': 'thu', 'พฤหัส': 'thu', 'thu': 'thu',
+  'ศ': 'fri', 'ศุกร์': 'fri', 'fri': 'fri',
+  'ส': 'sat', 'เสาร์': 'sat', 'sat': 'sat'
+};
+
 setInterval(() => {
   const now = new Date();
   const options = { timeZone: 'Asia/Bangkok', hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' };
@@ -395,22 +405,45 @@ async function handleEvent(event) {
     });
   }
 
-  // 2. ตรวจจับการสั่งตั้งเวลาแบบง่ายผ่านแชท (เช่น "ตั้งเวลา 08:30" หรือ "ตั้งเวลา 18:00")
-  const setTimeRegex = /(?:ตั้งเวลา|เวลา)\s*([0-2]?\d[:.]\d{2})/;
+  // 2. ตรวจจับการสั่งตั้งเวลาแบบยืดหยุ่น (กำหนดวันได้ เช่น "ตั้งเวลา 08:30 จ พ ศ" หรือ "ตั้งเวลา 18:00 ส อา")
+  const setTimeRegex = /(?:ตั้งเวลา|เวลา)\s*([0-2]?\d[:.]\d{2})(.*)/i;
   const match = userText.match(setTimeRegex);
   if (match) {
     let formattedTime = match[1].replace('.', ':');
     const [h, m] = formattedTime.split(':');
     formattedTime = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
 
-    // ตั้งเวลาที่ช่วงที่ 1 และเปิดใช้งานทันทีทุกวัน
+    const rawDaysStr = match[2].trim();
+    let selectedDays = [];
+
+    if (rawDaysStr) {
+      // ค้นหาวันที่ระบุในข้อความ
+      const words = rawDaysStr.split(/[\s,]+/);
+      words.forEach(w => {
+        const cleanWord = w.trim().toLowerCase();
+        if (dayMap[cleanWord]) {
+          if (!selectedDays.includes(dayMap[cleanWord])) {
+            selectedDays.push(dayMap[cleanWord]);
+          }
+        }
+      });
+    }
+
+    // ถ้าไม่ได้ระบุวัน ให้ถือว่าเลือก "ทุกวัน"
+    if (selectedDays.length === 0) {
+      selectedDays = ['sun','mon','tue','wed','thu','fri','sat'];
+    }
+
+    // ตั้งเวลาลงในช่องที่ 1 และเปิดใช้งาน
     schedules[0].time = formattedTime;
+    schedules[0].days = selectedDays;
     schedules[0].enabled = true;
-    schedules[0].days = ['sun','mon','tue','wed','thu','fri','sat'];
+
+    const daysTextThai = selectedDays.map(d => dayThaiName[d]).join(', ');
 
     return lineClient.replyMessage(event.replyToken, {
       type: 'text',
-      text: `⏰ บันทึกการตั้งเวลาสำเร็จ!\n\nตั้งเวลาให้อาหารช่วงที่ 1 เป็นเวลา ${formattedTime} น. (เปิดใช้งานทุกวัน) เรียบร้อยครับ 🟢`,
+      text: `⏰ บันทึกการตั้งเวลาสำเร็จ!\n\n- เวลา: ${formattedTime} น.\n- วันที่ทำงาน: ${daysTextThai}\n- สถานะ: 🟢 เปิดใช้งาน (ช่วงที่ 1)`,
       quickReply: quickReplyMenu
     });
   }
@@ -457,7 +490,7 @@ async function handleEvent(event) {
   // 5. คำสั่งอื่นๆ ที่ไม่รู้จัก
   return lineClient.replyMessage(event.replyToken, {
     type: 'text',
-    text: '📌 วิธีใช้งานตั้งเวลาแบบง่าย:\nพิมพ์ เช่น "ตั้งเวลา 08:30" หรือ "ตั้งเวลา 18:00"\n\nหรือเลือกกดเมนูด้านล่างนี้ได้เลยครับ:',
+    text: '📌 ตัวอย่างการสั่งตั้งเวลาผ่านแชท:\n• "ตั้งเวลา 08:30" (ทุกวัน)\n• "ตั้งเวลา 08:30 จ พ ศ" (เฉพาะวัน)\n• "ตั้งเวลา 18:00 ส อา" (เสาร์-อาทิตย์)',
     quickReply: quickReplyMenu
   });
 }
